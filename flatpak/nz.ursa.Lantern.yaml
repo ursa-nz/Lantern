@@ -1,0 +1,121 @@
+id: nz.ursa.Lantern
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node22
+command: lantern
+
+# Sandbox permissions.
+#
+# Known limitation: --share=network is here because WebKitGTK and parts of
+# the GNOME portal stack make network-related calls at startup that fail
+# under --unshare=network (org.freedesktop.portal.Error.NotAllowed).  The
+# downside is that marp --server binds to all interfaces (it has no
+# --host/HOST option), so while Lantern is running its preview port is
+# reachable from the local network.  The port is randomised on each launch
+# so it's not trivially discoverable, but on an untrusted LAN it's still a leak.
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home         # user opens/saves .md files anywhere in $HOME
+  - --talk-name=org.freedesktop.portal.Desktop
+
+build-options:
+  append-path: /usr/lib/sdk/node22/bin
+  env:
+    npm_config_cache: /run/build/marp-cli/.npm
+
+modules:
+
+  # Marp CLI bundled into /app/bin/marp.
+  # We allow network during this build step so npm can fetch from the registry.
+  # For a fully reproducible Flathub-style build, swap this for an offline
+  # `npm ci` against a pre-generated node-sources.json (flatpak-node-generator).
+  - name: marp-cli
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - mkdir -p /app/share/lantern /app/bin
+      - cp package.json /app/share/lantern/
+      - cd /app/share/lantern && npm install --no-audit --no-fund --omit=dev '@marp-team/marp-cli@^4.1.0'
+
+      # The node22 SDK extension is build-only. marp's shebang is
+      # `#!/usr/bin/env node`, so we need node on PATH inside the runtime
+      # sandbox too. Copy the SDK's node binary into /app/bin.
+      - install -Dm755 /usr/lib/sdk/node22/bin/node /app/bin/node
+
+      - ln -sf /app/share/lantern/node_modules/.bin/marp /app/bin/marp
+
+      # Headless Chromium for marp's PDF/PPTX render path.  We use
+      # chrome-headless-shell (the headless-only build puppeteer ships) via
+      # the @puppeteer/browsers CLI that puppeteer-core already brings in.
+      # Users who want a fully degoogled binary can override CHROME_PATH at
+      # runtime to point at their own ungoogled-chromium.
+      - cd /app/share/lantern && /usr/lib/sdk/node22/bin/node
+          node_modules/@puppeteer/browsers/lib/cjs/main-cli.js
+          install --path /app/share/lantern/chromium-cache
+          chrome-headless-shell@stable
+      # Wrap chrome-headless-shell so it always launches with --no-sandbox.
+      # Chromium's own sandbox cannot initialize inside flatpak's bwrap on
+      # Ubuntu 23.10+ (AppArmor blocks unprivileged user namespaces), and
+      # the flatpak sandbox is already isolating the process — Chromium's
+      # extra layer would be redundant even if it could start.
+      - |
+        CHROME_BIN=$(ls -1 /app/share/lantern/chromium-cache/chrome-headless-shell/linux-*/chrome-headless-shell-linux64/chrome-headless-shell | head -1)
+        echo "bundling chrome-headless-shell from: $CHROME_BIN"
+        cat > /app/bin/chrome-headless-shell <<EOF
+        #!/bin/sh
+        exec "$CHROME_BIN" --no-sandbox "\$@"
+        EOF
+        chmod 755 /app/bin/chrome-headless-shell
+    sources:
+      - type: inline
+        dest-filename: package.json
+        contents: |
+          {
+            "name": "lantern-runtime",
+            "private": true,
+            "version": "1.0.0",
+            "description": "Bundled marp-cli for Lantern."
+          }
+
+  # Lantern itself — Python sources, launcher, desktop entry, metainfo, icon.
+  - name: lantern
+    buildsystem: simple
+    build-commands:
+      # Python package
+      - cp -r src/lantern /app/share/lantern/lantern
+
+      # Launcher: hardcode the in-sandbox python and sharedir
+      - sed -e 's|@PYTHON@|/usr/bin/python3|g'
+            -e 's|@SHAREDIR@|/app/share/lantern|g'
+            src/lantern.in > lantern.launcher
+      - install -Dm755 lantern.launcher /app/bin/lantern
+
+      # Desktop entry: substitute bindir
+      - sed 's|@BINDIR@|/app/bin|g' data/nz.ursa.Lantern.desktop.in > nz.ursa.Lantern.desktop
+      - install -Dm644 nz.ursa.Lantern.desktop /app/share/applications/nz.ursa.Lantern.desktop
+
+      # Metainfo
+      - install -Dm644 data/nz.ursa.Lantern.metainfo.xml /app/share/metainfo/nz.ursa.Lantern.metainfo.xml
+
+      # Icon
+      - install -Dm644 data/icons/hicolor/scalable/apps/nz.ursa.Lantern.svg
+            /app/share/icons/hicolor/scalable/apps/nz.ursa.Lantern.svg
+
+      # IBM Plex Mono (OFL 1.1).  /app/share/fonts is on fontconfig's
+      # path inside the GNOME runtime, so dropping TTFs here makes them
+      # immediately resolvable as "IBM Plex Mono" — which our CSS asks
+      # the editor to use.
+      - install -d /app/share/fonts/IBMPlexMono
+      - install -m644 data/fonts/IBMPlexMono/*.ttf /app/share/fonts/IBMPlexMono/
+      - install -m644 data/fonts/IBMPlexMono/LICENSE.txt /app/share/fonts/IBMPlexMono/LICENSE.txt
+    sources:
+      - type: dir
+        path: ..

@@ -1,0 +1,63 @@
+name: Build & Release Flatpak
+
+# Builds the Lantern .flatpak bundle.  On a pushed version tag (v0.1.0,
+# v1.2.3, etc.) it also creates a GitHub Release and attaches the bundle.
+# Manual triggers via the Actions tab build and upload as a workflow
+# artifact only — no release is created without a tag.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write           # needed to create the release
+
+# One run per tag at a time; cancel any redundant build for the same ref.
+concurrency:
+  group: build-flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build flatpak bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install flatpak and flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+
+      - name: Cache flatpak runtime + SDK
+        # The GNOME 49 Platform/Sdk and node22 extension together come to
+        # well over a gig.  Caching them across runs cuts a fresh build
+        # from ~10 min down to ~3 min.
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-runtime-${{ runner.os }}-gnome49-node22-v1
+
+      - name: Build bundle
+        run: ./scripts/build-flatpak.sh
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nz.ursa.Lantern.flatpak
+          path: build/nz.ursa.Lantern.flatpak
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/nz.ursa.Lantern.flatpak
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          draft: false
+          prerelease: false

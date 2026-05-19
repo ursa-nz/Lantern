@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Lantern launcher.
+#
+# @PYTHON@ is substituted by the installer to point at a python interpreter
+# that has PyGObject available (apt's python3-gi).  We hardcode this so the
+# app doesn't break for users who have a venv-shadowed `python3` on PATH.
+#
+# @SHAREDIR@ is the directory containing the `lantern/` Python package and
+# the `node_modules/` directory with marp-cli.
+set -e
+
+export PYTHONPATH="@SHAREDIR@${PYTHONPATH:+:${PYTHONPATH}}"
+
+# Headless Chromium for marp's PDF/PPTX render path. Honoured if the user
+# already exported CHROME_PATH (e.g. to swap in ungoogled-chromium); only
+# fall back to the bundled chrome-headless-shell when present.
+if [ -z "${CHROME_PATH:-}" ] && [ -x /app/bin/chrome-headless-shell ]; then
+    export CHROME_PATH=/app/bin/chrome-headless-shell
+fi
+
+exec "@PYTHON@" -m lantern "$@"

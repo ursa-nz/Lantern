@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Flatpak build outputs
+build/
+.flatpak-builder/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

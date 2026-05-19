@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>nz.ursa.Lantern</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Lantern</name>
+  <summary>Author Markdown slide decks with live preview</summary>
+  <developer id="nz.ursa">
+    <name>ursa.nz</name>
+  </developer>
+
+  <description>
+    <p>
+      Lantern is a calm Markdown slide authoring app for GNOME.  Write a deck
+      in plain Markdown, watch it render live in the same window, and let the
+      file on disk stay the source of truth.
+    </p>
+    <p>
+      Slides are powered by the Marp ecosystem, so anything you can express in
+      Marp Markdown — themes, directives, fragments — will render.  Lantern
+      handles the editor, the preview pane, and the file lifecycle so you can
+      keep your attention on the words.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Side-by-side editor and live preview, or focus mode for either</li>
+      <li>Markdown syntax highlighting (GtkSourceView)</li>
+      <li>IBM Plex Mono typography out of the box</li>
+      <li>Automatic save while you type — no save button to remember</li>
+      <li>Follows the system light / dark preference</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">nz.ursa.Lantern.desktop</launchable>
+
+  <categories>
+    <category>Office</category>
+    <category>Presentation</category>
+    <category>TextEditor</category>
+  </categories>
+
+  <keywords>
+    <keyword>markdown</keyword>
+    <keyword>marp</keyword>
+    <keyword>slides</keyword>
+    <keyword>presentation</keyword>
+    <keyword>deck</keyword>
+  </keywords>
+
+  <url type="homepage">https://forge.ursa.nz</url>
+  <url type="bugtracker">https://ursa.nz/contact/</url>
+
+  <content_rating type="oars-1.1"/>
+
+  <requires>
+    <display_length compare="ge">720</display_length>
+  </requires>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#f4e5c0</color>
+    <color type="primary" scheme_preference="dark">#2b3340</color>
+  </branding>
+
+  <releases>
+    <release version="0.1.0" date="2026-05-19">
+      <description>
+        <p>First cut: editor, preview, autosave, light/dark, layout toggle.</p>
+      </description>
+    </release>
+  </releases>
+</component>

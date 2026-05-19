@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Lantern
+GenericName=Slide Editor
+Comment=Author Markdown slide decks with live preview
+Exec=@BINDIR@/lantern %F
+Icon=nz.ursa.Lantern
+Terminal=false
+Categories=GNOME;GTK;Office;Presentation;TextEditor;
+# Deliberately NOT claiming MimeType=text/markdown so Lantern doesn't appear
+# as a system handler for .md files (and doesn't become the default by
+# attrition when it's the only registered handler).  Users who want it that
+# way can run:  xdg-mime default nz.ursa.Lantern.desktop text/markdown
+Keywords=markdown;marp;slides;presentation;deck;
+StartupNotify=true
+StartupWMClass=nz.ursa.Lantern

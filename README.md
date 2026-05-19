@@ -20,9 +20,20 @@ Sincere thanks to:
 - [IBM Plex Mono](https://www.ibm.com/plex/) — bundled under the [SIL OFL 1.1](data/fonts/IBMPlexMono/LICENSE.txt) for the editor typography, and
 - the Lantern icon, adapted (with light modifications) from an illustration by [leedanii on Unsplash](https://unsplash.com/@leedanii/illustrations).
 
-## Install
+## Just want to run it
 
-**Flatpak (shareable, full features).** Hand the `.flatpak` to anyone with flatpak and they're done.
+Each tagged release ships a ready-to-install bundle. Grab `nz.ursa.Lantern.flatpak` from the [latest release](https://github.com/ursa-nz/Lantern/releases/latest), then:
+
+```
+flatpak install --user ~/Downloads/nz.ursa.Lantern.flatpak
+flatpak run nz.ursa.Lantern
+```
+
+(You need `flatpak` itself installed: `sudo apt install flatpak` on Debian/Ubuntu, similar for other distros.)
+
+## Build it yourself
+
+**Flatpak.** For reproducing what the release ships, or making your own changes.
 
 ```
 sudo apt install flatpak-builder

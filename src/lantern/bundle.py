@@ -444,6 +444,41 @@ def count_references(deck_text: str, rel: str) -> int:
     return deck_text.count(rel)
 
 
+# Marp image options the dialog can set. Filters are bare keywords (Marp gives
+# each a sensible default, e.g. blur=10px, sepia=100%), so they double as toggles.
+IMAGE_FILTERS = ("blur", "grayscale", "sepia", "invert")
+BG_SIZES = ("cover", "fit", "auto")        # plus an implicit "default" (omitted)
+BG_POSITIONS = ("full", "left", "right")
+
+
+def image_markdown(rel: str, *, background: bool = False,
+                   width: str = "", height: str = "",
+                   bg_position: str = "full", bg_split_pct=None,
+                   bg_size: str = "default", filters=()) -> str:
+    """Build a Marp image directive `![opts](rel)` from placement options.
+
+    Inline images take w:/h: sizing; backgrounds take a position (full, or a
+    left/right split with an optional percentage) and a size keyword. Filter
+    keywords apply to either. With no options this is just `![](rel)` or
+    `![bg](rel)`, matching the old inline/background choice.
+    """
+    tokens: list = []
+    if background:
+        tokens.append("bg")
+        if bg_position in ("left", "right"):
+            tokens.append(f"{bg_position}:{bg_split_pct}%" if bg_split_pct
+                          else bg_position)
+        if bg_size in BG_SIZES:
+            tokens.append(bg_size)
+    else:
+        if width.strip():
+            tokens.append(f"w:{width.strip()}")
+        if height.strip():
+            tokens.append(f"h:{height.strip()}")
+    tokens.extend(f for f in filters if f in IMAGE_FILTERS)
+    return f"![{' '.join(tokens)}]({rel})"
+
+
 def _add_asset(work_dir, src, subdir) -> str:
     src = Path(src)
     dest_dir = Path(work_dir) / subdir

@@ -366,25 +366,101 @@ class ResourcesWindow(Adw.Window):
 
 
 def prompt_insert(parent, rel, on_insert) -> None:
-    """Ask inline vs background, then hand the markdown to `on_insert`.
+    """Open the image-insert dialog, then hand the markdown to `on_insert`.
 
     Shared by the Resources list's Insert button and the editor's drop-target.
     """
-    dlg = Adw.AlertDialog(heading="Insert image", body=_basename(rel))
-    dlg.add_response("cancel", "Cancel")
-    dlg.add_response("inline", "Inline")
-    dlg.add_response("bg", "Background")
-    dlg.set_default_response("inline")
-    dlg.set_close_response("cancel")
+    _ImageDialog(rel, on_insert).present(parent)
 
-    def _resp(_dlg, response):
-        if response == "inline":
-            on_insert(f"![]({rel})")
-        elif response == "bg":
-            on_insert(f"![bg]({rel})")
 
-    dlg.connect("response", _resp)
-    dlg.present(parent)
+class _ImageDialog(Adw.Dialog):
+    """Form for placing an image: inline (with w:/h:) or as a background
+    (position, split, fit), with optional filters. Builds a Marp directive via
+    bundle.image_markdown and hands it to on_insert."""
+
+    def __init__(self, rel, on_insert) -> None:
+        super().__init__(title="Insert image")
+        self._rel = rel
+        self._on_insert = on_insert
+        self.set_content_width(440)
+
+        insert = Gtk.Button(label="Insert")
+        insert.add_css_class("suggested-action")
+        insert.connect("clicked", self._on_insert_clicked)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda *_: self.close())
+        header = Adw.HeaderBar(show_start_title_buttons=False,
+                               show_end_title_buttons=False)
+        header.pack_start(cancel)
+        header.pack_end(insert)
+
+        page = Adw.PreferencesPage()
+
+        placement_group = Adw.PreferencesGroup(description=_basename(rel))
+        self._placement = Adw.ComboRow(
+            title="Placement", model=Gtk.StringList.new(["Inline", "Background"]))
+        self._placement.connect("notify::selected", self._sync_visibility)
+        placement_group.add(self._placement)
+        page.add(placement_group)
+
+        self._size_group = Adw.PreferencesGroup(title="Size")
+        self._width = Adw.EntryRow(title="Width (e.g. 300 or 50%)")
+        self._height = Adw.EntryRow(title="Height (optional)")
+        self._size_group.add(self._width)
+        self._size_group.add(self._height)
+        page.add(self._size_group)
+
+        self._bg_group = Adw.PreferencesGroup(title="Background")
+        self._bg_position = Adw.ComboRow(
+            title="Position", model=Gtk.StringList.new(["Full", "Left", "Right"]))
+        self._bg_position.connect("notify::selected", self._sync_visibility)
+        self._bg_split = Adw.SpinRow.new_with_range(10, 90, 5)
+        self._bg_split.set_title("Split %")
+        self._bg_split.set_value(50)
+        self._bg_size = Adw.ComboRow(
+            title="Size", model=Gtk.StringList.new(["Default", "Cover", "Fit", "Auto"]))
+        self._bg_group.add(self._bg_position)
+        self._bg_group.add(self._bg_split)
+        self._bg_group.add(self._bg_size)
+        page.add(self._bg_group)
+
+        filter_group = Adw.PreferencesGroup(title="Filters")
+        self._filters = {}
+        for key in bundle.IMAGE_FILTERS:
+            row = Adw.SwitchRow(title=key.capitalize())
+            self._filters[key] = row
+            filter_group.add(row)
+        page.add(filter_group)
+
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(header)
+        toolbar.set_content(page)
+        self.set_child(toolbar)
+        self._sync_visibility()
+
+    def _sync_visibility(self, *_) -> None:
+        background = self._placement.get_selected() == 1
+        self._size_group.set_visible(not background)
+        self._bg_group.set_visible(background)
+        # The split percentage only matters for a left/right background.
+        self._bg_split.set_visible(self._bg_position.get_selected() in (1, 2))
+
+    def _on_insert_clicked(self, _btn) -> None:
+        background = self._placement.get_selected() == 1
+        position = bundle.BG_POSITIONS[self._bg_position.get_selected()]
+        size = ("default",) + bundle.BG_SIZES
+        markdown = bundle.image_markdown(
+            self._rel,
+            background=background,
+            width=self._width.get_text(),
+            height=self._height.get_text(),
+            bg_position=position,
+            bg_split_pct=(int(self._bg_split.get_value())
+                          if position in ("left", "right") else None),
+            bg_size=size[self._bg_size.get_selected()],
+            filters=[k for k, row in self._filters.items() if row.get_active()])
+        self._on_insert(markdown)
+        self.close()
 
 
 def _basename(rel) -> str:

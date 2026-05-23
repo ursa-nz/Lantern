@@ -1,17 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- A Lantern bundle is a zip, but we register a distinct type with the
-     two-part glob *.lantern.zip.  shared-mime-info prefers the longest
-     matching glob, so .lantern.zip resolves to this type rather than the
-     generic application/zip — Lantern is associated with its own bundles
-     only, never with every .zip on the system. -->
+<!-- A Lantern bundle is a zip with a .lantern extension.  We register a
+     distinct type so the OS opens .lantern files in Lantern.  Detection has
+     two paths, both pointing here:
+       1. the *.lantern glob.  Because .lantern is NOT .zip, no application/zip
+          glob competes, so this resolves even under flatpak's cap on the glob
+          weight an app may register (which is why the old *.lantern.zip form
+          lost to application/zip).
+       2. content magic on an EPUB-style `mimetype` marker (the bundle's first,
+          uncompressed entry holds this type string at offset 38).  Priority 60
+          beats application/zip's content magic (50), so even a renamed bundle
+          is recognised. -->
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/vnd.lantern+zip">
     <comment>Lantern presentation</comment>
     <sub-class-of type="application/zip"/>
-    <!-- weight > 50 so the filename wins over application/zip's content magic;
-         a .lantern.zip is a zip by content, so without this it's detected as
-         plain application/zip and the glob never takes effect. -->
-    <glob pattern="*.lantern.zip" weight="60"/>
+    <magic priority="60">
+      <match value="PK\003\004" type="string" offset="0">
+        <match value="mimetype" type="string" offset="30">
+          <match value="application/vnd.lantern+zip" type="string" offset="38"/>
+        </match>
+      </match>
+    </magic>
+    <glob pattern="*.lantern"/>
     <icon name="nz.ursa.Lantern"/>
   </mime-type>
 </mime-info>

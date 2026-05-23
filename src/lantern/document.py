@@ -1,19 +1,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2026 ursa.nz
-"""In-memory model of the deck being edited, backed by a .lantern.zip bundle.
+"""In-memory model of the deck being edited, backed by a .lantern bundle.
 
 A deck always lives in a working directory (see lantern.bundle): the editor
 and preview read and write `deck.md` there, and Save re-zips the directory
-into the bundle's .lantern.zip. New decks and imported .md files start without
+into the bundle's .lantern. New decks and imported .md files start without
 a bundle path until the first Save chooses one.
 
 Two snapshots track two different kinds of "dirty":
 - working text — what was last written to deck.md; drives the cheap autosave
   that keeps marp's live preview current.
-- saved text — what was last re-zipped into the .lantern.zip; drives the
+- saved text — what was last re-zipped into the .lantern; drives the
   "unsaved changes" state in the title bar and on close.
 
-- Document: owns the working dir, deck.md, and (once saved) the .lantern.zip
+- Document: owns the working dir, deck.md, and (once saved) the .lantern
   path. new()/open_bundle()/import_md() set things up; write_working() is the
   autosave; save() re-zips. Emits 'path-changed' when the bundle path moves.
 - default_template: minimal frontmatter + heading for a fresh deck.
@@ -32,7 +32,7 @@ from lantern import bundle
 class Document(GObject.Object):
     """In-memory model of the deck being edited, backed by a working dir.
 
-    Emits 'path-changed' when the backing .lantern.zip changes (open, save-as).
+    Emits 'path-changed' when the backing .lantern changes (open, save-as).
     """
 
     __gsignals__ = {
@@ -42,7 +42,7 @@ class Document(GObject.Object):
     def __init__(self) -> None:
         super().__init__()
         self._work_dir: Optional[Path] = None
-        self._bundle_path: Optional[Path] = None   # the .lantern.zip on disk
+        self._bundle_path: Optional[Path] = None   # the .lantern on disk
         self._import_name: Optional[str] = None     # title while still unsaved
         self._working_text: str = ""                # last written to deck.md
         self._saved_text: str = ""                  # last re-zipped to the bundle
@@ -62,7 +62,7 @@ class Document(GObject.Object):
 
     @property
     def is_saved(self) -> bool:
-        """True once the deck has a .lantern.zip on disk."""
+        """True once the deck has a .lantern on disk."""
         return self._bundle_path is not None
 
     @property
@@ -124,7 +124,7 @@ class Document(GObject.Object):
     def save(self, text: str, path=None) -> None:
         """Write deck.md, then re-zip the working dir into the bundle.
 
-        Pass `path` for Save As (a new .lantern.zip); omit it to overwrite the
+        Pass `path` for Save As (a new .lantern); omit it to overwrite the
         current bundle. Raises ValueError if there's no path to save to.
         """
         if self._work_dir is None:

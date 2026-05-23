@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2026 ursa.nz
-"""The .lantern.zip bundle — a deck's files, zipped.
+"""The .lantern bundle — a deck's files, zipped.
 
-A .lantern.zip is just a zip whose contents are a vanilla Marp project, so
+A .lantern is just a zip whose contents are a vanilla Marp project, so
 unzipping it by hand yields something marp-cli renders identically:
 
     deck.md          the slides (fixed name)
@@ -18,10 +18,10 @@ there, and Save re-zips. This module owns that pack/unpack/scaffold plumbing.
 
 - new_working_dir(): a fresh temp directory under the app cache.
 - scaffold(work_dir, deck_text): write the skeleton into a working dir.
-- unpack(zip_path): extract a .lantern.zip into a fresh working dir.
-- pack(work_dir, zip_path): atomically zip a working dir into a .lantern.zip.
+- unpack(zip_path): extract a .lantern into a fresh working dir.
+- pack(work_dir, zip_path): atomically zip a working dir into a .lantern.
 - cleanup(work_dir): remove a working dir.
-- display_name(zip_path): the bundle name with the .lantern.zip suffix stripped.
+- display_name(zip_path): the bundle name with the .lantern suffix stripped.
 
 Part of Lantern, released under the GNU General Public License v3 or later.
 """
@@ -33,7 +33,17 @@ import zipfile
 from pathlib import Path
 
 DECK_NAME = "deck.md"
-SUFFIX = ".lantern.zip"
+# A bundle is a zip with a single .lantern extension. The plain .zip form was
+# abandoned because its .zip suffix dragged in the uncapped application/zip
+# glob, which a sandboxed app's glob can't outrank; .lantern sidesteps that.
+SUFFIX = ".lantern"
+
+# EPUB-style content marker: the first archive entry is an uncompressed file
+# named `mimetype` whose bytes are MIME_TYPE.  A flatpak app can't register a
+# glob weight high enough to beat application/zip's content magic, but a magic
+# match on this fixed-offset marker wins (see nz.ursa.Lantern.mime.xml).
+MIME_TYPE = "application/vnd.lantern+zip"
+MIMETYPE_FILE = "mimetype"
 
 # marp-cli auto-loads a .marprc.* from the deck's directory, so pointing
 # themeSet at styles/ makes both the preview and a hand-unzip resolve the
@@ -80,15 +90,25 @@ def unpack(zip_path) -> Path:
 
 
 def pack(work_dir, zip_path) -> None:
-    """Zip `work_dir`'s contents into `zip_path` atomically (temp + rename)."""
+    """Zip `work_dir`'s contents into `zip_path` atomically (temp + rename).
+
+    The first entry is the uncompressed `mimetype` marker (see MIME_TYPE), so
+    the archive is content-detectable as a Lantern bundle; the rest of the
+    working dir follows. Any `mimetype` already in the working dir (from a
+    previous unpack) is skipped so it isn't written twice.
+    """
     work_dir = Path(work_dir)
     zip_path = Path(zip_path)
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = zip_path.with_name(zip_path.name + ".tmp")
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        marker = zipfile.ZipInfo(MIMETYPE_FILE)
+        marker.compress_type = zipfile.ZIP_STORED   # must be uncompressed
+        zf.writestr(marker, MIME_TYPE.encode("ascii"))
         for p in sorted(work_dir.rglob("*")):
-            if p.is_file():
-                zf.write(p, p.relative_to(work_dir).as_posix())
+            rel = p.relative_to(work_dir).as_posix()
+            if p.is_file() and rel != MIMETYPE_FILE:
+                zf.write(p, rel)
     os.replace(tmp, zip_path)
 
 
@@ -98,7 +118,7 @@ def cleanup(work_dir) -> None:
 
 
 def display_name(zip_path) -> str:
-    """Bundle name for the title bar, with the .lantern.zip suffix removed."""
+    """Bundle name for the title bar, with the .lantern suffix removed."""
     name = Path(zip_path).name
     return name[: -len(SUFFIX)] if name.endswith(SUFFIX) else Path(zip_path).stem
 

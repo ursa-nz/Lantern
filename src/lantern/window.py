@@ -5,7 +5,7 @@
 - LanternWindow: the Adw.ApplicationWindow.  Owns the Document, the
   MarpServer, the Editor and Preview, and wires the three together.
 - action_new_file / action_open_file / action_save / open_path: the
-  .lantern.zip lifecycle.  Opening a bundle unpacks it to a working dir;
+  .lantern lifecycle.  Opening a bundle unpacks it to a working dir;
   opening a loose .md imports it; Save re-zips the working dir.
 - action_export: opens a save dialog, then hands off to lantern.export to
   produce HTML (marp), PDF (WebKit print), or PPTX (pandoc).
@@ -235,7 +235,7 @@ class LanternWindow(Adw.ApplicationWindow):
         """
         app = self.get_application()
 
-        # win.save — Ctrl+S re-zips the working dir into the .lantern.zip.
+        # win.save — Ctrl+S re-zips the working dir into the .lantern.
         save_action = Gio.SimpleAction.new("save", None)
         save_action.connect("activate", lambda *_: self.action_save())
         save_action.set_enabled(False)
@@ -451,10 +451,10 @@ class LanternWindow(Adw.ApplicationWindow):
     # File actions
     # ------------------------------------------------------------------
     def _bundle_filter(self) -> Gio.ListStore:
-        """A FileFilter matching *.lantern.zip (for New / Save As)."""
+        """A FileFilter matching *.lantern (for New / Save As)."""
         filt = Gtk.FileFilter()
         filt.set_name("Lantern presentation")
-        filt.add_pattern("*.lantern.zip")
+        filt.add_pattern("*.lantern")
         store = Gio.ListStore.new(Gtk.FileFilter)
         store.append(filt)
         return store
@@ -464,7 +464,7 @@ class LanternWindow(Adw.ApplicationWindow):
         store = Gio.ListStore.new(Gtk.FileFilter)
         bundle_f = Gtk.FileFilter()
         bundle_f.set_name("Lantern presentation")
-        bundle_f.add_pattern("*.lantern.zip")
+        bundle_f.add_pattern("*.lantern")
         md_f = Gtk.FileFilter()
         md_f.set_name("Markdown (import)")
         md_f.add_pattern("*.md")
@@ -492,7 +492,7 @@ class LanternWindow(Adw.ApplicationWindow):
     def action_new_file(self) -> None:
         dlg = Gtk.FileDialog.new()
         dlg.set_title("New presentation")
-        dlg.set_initial_name("presentation.lantern.zip")
+        dlg.set_initial_name("presentation.lantern")
         dlg.set_filters(self._bundle_filter())
         folder = self._initial_folder()
         if folder:
@@ -536,7 +536,7 @@ class LanternWindow(Adw.ApplicationWindow):
             self.open_path(f.get_path())
 
     def open_path(self, path: str) -> None:
-        """Open a .lantern.zip bundle (unpack) or import a loose .md."""
+        """Open a .lantern bundle (unpack) or import a loose .md."""
         p = str(path)
         try:
             if p.endswith(bundle.SUFFIX):
@@ -633,7 +633,7 @@ class LanternWindow(Adw.ApplicationWindow):
 
     def _autosave(self) -> bool:
         # Writes the editor text to the working dir's deck.md (cheap), which
-        # is what drives marp's live reload.  The .lantern.zip is only updated
+        # is what drives marp's live reload.  The .lantern is only updated
         # by an explicit Save.  One-shot: the next keystroke re-arms the timer.
         self._save_timeout = 0
         if self.document.deck_path is None:

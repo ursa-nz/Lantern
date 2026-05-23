@@ -36,8 +36,11 @@ The blocker for (1): Google ships **no Linux-ARM** `chrome-headless-shell`
   editable-but-unthemed ("no great loss"; marp's PPTX was just slide images
   anyway); HTML stays marp-cli. Pandoc theming, if any, is just a curated
   `--reference-doc` — it can't read marp CSS.
-- **Save format = `.lantern.zip`** — deliberately double-extensioned to be
-  transparent it's just a zip. Contents are a vanilla Marp project so
+- **Save format = `.lantern`** — a zip with a single `.lantern` extension
+  (we tell users it's just a zip; rename to `.zip` to peek inside). Started as
+  `.lantern.zip` but that lost MIME detection: the `.zip` suffix pulls in the
+  uncapped `application/zip` glob, which a flatpak app's glob can't outrank.
+  `.lantern` sidesteps that entirely. Contents are a vanilla Marp project so
   `unzip` → any Marp tool renders it identically (interop = unzip-first):
   - `deck.md` (fixed entry name)
   - `.marprc.yml` with `themeSet: ['styles']` — **interop linchpin**: marp
@@ -71,20 +74,22 @@ The blocker for (1): Google ships **no Linux-ARM** `chrome-headless-shell`
   tags-only release job attaches both. (Forgejo can't cross-build: atutahi is
   x86_64 with no aarch64 binfmt.)
 
-### Phase 2 — `.lantern.zip` container format (DONE)
-- [x] `bundle.py`: pack/unpack/scaffold a working dir <-> .lantern.zip
-  (deck.md + `.marprc.yml` `themeSet: styles` + images/ + styles/), atomic
-  save, zip-slip guard.
+### Phase 2 — `.lantern` container format (DONE)
+- [x] `bundle.py`: pack/unpack/scaffold a working dir <-> .lantern
+  (deck.md + `.marprc.yml` `themeSet: styles` + images/ + styles/ + an
+  EPUB-style uncompressed `mimetype` marker as the first entry), atomic save,
+  zip-slip guard.
 - [x] `Document` is working-dir-backed: New/Open(unpack)/Import(.md)/
   write_working(autosave)/save(re-zip), two-snapshot dirty model (working
   file vs last-zipped).
-- [x] `window.py`: New makes a .lantern.zip; Open unpacks bundles or imports a
+- [x] `window.py`: New makes a .lantern; Open unpacks bundles or imports a
   loose .md; Save (Ctrl+S) re-zips / Save As; marp --server now watches the
   small working dir, which kills the huge-parent-dir preview lag.
-- [x] File type: `application/vnd.lantern+zip`, glob `*.lantern.zip` at
-  `weight=60` (beats application/zip's content magic), sub-class-of zip;
-  desktop `MimeType` + mime XML + manifest install. Verified: double-click
-  opens Lantern.
+- [x] File type: `application/vnd.lantern+zip`, glob `*.lantern` (no `.zip`
+  suffix so it doesn't fight `application/zip`; resolves even under flatpak's
+  app-glob weight cap) + content magic on the `mimetype` marker (priority 60),
+  sub-class-of zip; desktop `MimeType` + mime XML + manifest install. Verified
+  the glob resolves under a simulated weight cap, with and without the marker.
 - Deferred: an optional `lantern.json` manifest (format version) — not needed
   yet.
 

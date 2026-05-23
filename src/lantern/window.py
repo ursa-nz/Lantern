@@ -22,6 +22,7 @@ Part of Lantern, released under the GNU General Public License v3 or later.
 
 import json
 import os
+from datetime import date
 from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
@@ -215,6 +216,7 @@ class LanternWindow(Adw.ApplicationWindow):
         file_section.append("New",       "app.new")
         file_section.append("Open…", "app.open")
         file_section.append("Save",      "win.save")
+        file_section.append("Properties…", "win.properties")
         menu.append_section(None, file_section)
         view_section = Gio.Menu()
         export_menu = Gio.Menu()
@@ -223,6 +225,7 @@ class LanternWindow(Adw.ApplicationWindow):
         view_section.append_submenu("Export…", export_menu)
         menu.append_section(None, view_section)
         meta_section = Gio.Menu()
+        meta_section.append("Preferences", "win.preferences")
         meta_section.append(f"About {APP_NAME}", "app.about")
         menu.append_section(None, meta_section)
 
@@ -251,6 +254,18 @@ class LanternWindow(Adw.ApplicationWindow):
         self._save_action = save_action
         if app:
             app.set_accels_for_action("win.save", ["<primary>s"])
+
+        # win.properties — edit the bundle's title/author (lantern.json).
+        prop_action = Gio.SimpleAction.new("properties", None)
+        prop_action.connect("activate", lambda *_: self._show_properties())
+        prop_action.set_enabled(False)
+        self.add_action(prop_action)
+        self._properties_action = prop_action
+
+        # win.preferences — app settings (the default author name).
+        prefs_action = Gio.SimpleAction.new("preferences", None)
+        prefs_action.connect("activate", lambda *_: self._show_preferences())
+        self.add_action(prefs_action)
 
         # win.present — F5 toggles fullscreen present mode.
         action = Gio.SimpleAction.new("present", None)
@@ -436,8 +451,42 @@ class LanternWindow(Adw.ApplicationWindow):
         )
         button_box.append(new_btn)
         button_box.append(open_btn)
-        page.set_child(button_box)
+
+        # Recent decks, filled in by _refresh_recents() from saved state.
+        self._recent_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE,
+                                        halign=Gtk.Align.CENTER)
+        self._recent_list.add_css_class("boxed-list")
+        self._recent_list.set_size_request(380, -1)
+        self._recent_list.connect("row-activated", self._on_recent_activated)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24,
+                      halign=Gtk.Align.CENTER)
+        box.append(button_box)
+        box.append(self._recent_list)
+        page.set_child(box)
+        self._refresh_recents()
         return page
+
+    def _refresh_recents(self) -> None:
+        child = self._recent_list.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self._recent_list.remove(child)
+            child = nxt
+        paths = [r for r in self._state.get("recent", []) if os.path.isfile(r)]
+        self._recent_list.set_visible(bool(paths))
+        home = str(Path.home())
+        for p in paths:
+            parent = str(Path(p).parent)
+            subtitle = "~" + parent[len(home):] if parent.startswith(home) else parent
+            row = Adw.ActionRow(title=bundle.display_name(p), subtitle=subtitle,
+                                activatable=True)
+            row.add_prefix(Gtk.Image.new_from_icon_name("x-office-presentation-symbolic"))
+            row._lantern_path = p
+            self._recent_list.append(row)
+
+    def _on_recent_activated(self, _listbox, row) -> None:
+        self.open_path(row._lantern_path)
 
     def _build_doc(self) -> Gtk.Widget:
         # Paned is GTK's draggable two-pane container.  set_shrink_*=False
@@ -518,6 +567,7 @@ class LanternWindow(Adw.ApplicationWindow):
         if not path.endswith(bundle.SUFFIX):
             path += bundle.SUFFIX
         text = self.document.new(bundle.display_name(path))
+        self._stamp_meta(new=True)
         try:
             self.document.save(text, path=path)
         except OSError as e:
@@ -564,6 +614,7 @@ class LanternWindow(Adw.ApplicationWindow):
         if self.document.deck_path is None:
             return
         if self.document.is_saved:
+            self._stamp_meta()
             try:
                 self.document.save(self.editor.get_text())
                 self._toast("Saved")
@@ -592,6 +643,7 @@ class LanternWindow(Adw.ApplicationWindow):
         path = f.get_path()
         if not path.endswith(bundle.SUFFIX):
             path += bundle.SUFFIX
+        self._stamp_meta()
         try:
             self.document.save(self.editor.get_text(), path=path)
             self._toast("Saved")
@@ -605,6 +657,7 @@ class LanternWindow(Adw.ApplicationWindow):
         self._start_preview(self.document.deck_path)
         self._content_stack.set_visible_child_name("doc")
         self._save_action.set_enabled(True)
+        self._properties_action.set_enabled(True)
         self._present_action.set_enabled(True)
         self._present_windowed_action.set_enabled(True)
         self._resources_btn.set_sensitive(True)
@@ -614,8 +667,90 @@ class LanternWindow(Adw.ApplicationWindow):
             self._resources_win.refresh()
 
     def _remember_folder(self, path) -> None:
-        self._state["last_folder"] = str(Path(path).parent)
+        p = str(Path(path).resolve())
+        self._state["last_folder"] = str(Path(p).parent)
+        recent = [r for r in self._state.get("recent", []) if r != p]
+        recent.insert(0, p)
+        self._state["recent"] = recent[:8]
         _save_state(self._state)
+
+    # ------------------------------------------------------------------
+    # Metadata + preferences
+    # ------------------------------------------------------------------
+    def _stamp_meta(self, new: bool = False) -> None:
+        # Update the bundle's lantern.json just before a save: a modified date
+        # (and last-modified-by) always, plus created + a default author the
+        # first time the deck is saved.
+        wd = self.document.work_dir
+        if wd is None:
+            return
+        today = date.today().isoformat()
+        meta = bundle.read_meta(wd)
+        meta["modified"] = today
+        author = self._state.get("author", "").strip()
+        if author:
+            meta["lastModifiedBy"] = author
+        if new:
+            meta.setdefault("created", today)
+            if author:
+                meta.setdefault("author", author)
+        bundle.write_meta(wd, meta)
+
+    def _show_preferences(self) -> None:
+        dlg = Adw.PreferencesDialog()
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup(
+            title="Author",
+            description="Stamped as the last-modified-by when you save a deck.")
+        self._author_row = Adw.EntryRow(title="Your name")
+        self._author_row.set_text(self._state.get("author", ""))
+        group.add(self._author_row)
+        page.add(group)
+        dlg.add(page)
+        dlg.connect("closed", self._on_preferences_closed)
+        dlg.present(self)
+
+    def _on_preferences_closed(self, _dlg) -> None:
+        self._state["author"] = self._author_row.get_text().strip()
+        _save_state(self._state)
+
+    def _show_properties(self) -> None:
+        if self.document.work_dir is None:
+            return
+        meta = bundle.read_meta(self.document.work_dir)
+        dlg = Adw.PreferencesDialog(title="Properties")
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup()
+        self._prop_title = Adw.EntryRow(title="Title")
+        self._prop_title.set_text(meta.get("title", ""))
+        self._prop_author = Adw.EntryRow(title="Author")
+        self._prop_author.set_text(meta.get("author", self._state.get("author", "")))
+        group.add(self._prop_title)
+        group.add(self._prop_author)
+        if meta.get("modified") or meta.get("lastModifiedBy"):
+            when, who = meta.get("modified", ""), meta.get("lastModifiedBy", "")
+            sub = f"{when} by {who}" if when and who else (when or f"by {who}")
+            group.add(Adw.ActionRow(title="Last modified", subtitle=sub, sensitive=False))
+        page.add(group)
+        dlg.add(page)
+        dlg.connect("closed", self._on_properties_closed)
+        dlg.present(self)
+
+    def _on_properties_closed(self, _dlg) -> None:
+        wd = self.document.work_dir
+        if wd is None:
+            return
+        meta = bundle.read_meta(wd)
+        for key, row in (("title", self._prop_title), ("author", self._prop_author)):
+            value = row.get_text().strip()
+            if value:
+                meta[key] = value
+            else:
+                meta.pop(key, None)
+        bundle.write_meta(wd, meta)
+        # Persist into the .lantern if it has one (this also stamps modified).
+        if self.document.is_saved:
+            self.action_save()
 
     # ------------------------------------------------------------------
     # Resources (images & fonts)
@@ -638,16 +773,16 @@ class LanternWindow(Adw.ApplicationWindow):
 
     def _install_editor_drop(self) -> None:
         # Drop an image onto the editor: bundle it, then ask inline vs
-        # background and insert the reference at the cursor.
-        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
-        drop.connect("drop", self._on_editor_drop)
-        self.editor.widget.add_controller(drop)
+        # background and insert the reference at the cursor. capture=True so this
+        # claims image drops before GtkSourceView pastes the path in as text.
+        resources.install_file_drop(self.editor.widget, self._handle_editor_files,
+                                     capture=True)
 
-    def _on_editor_drop(self, _target, value, _x, _y) -> bool:
+    def _handle_editor_files(self, files) -> None:
         if self.document.work_dir is None:
-            return False
+            return
         added = False
-        for gf in value.get_files():
+        for gf in files:
             path = gf.get_path()
             if not path or os.path.splitext(path)[1].lower() not in resources.IMAGE_EXTS:
                 continue
@@ -656,7 +791,6 @@ class LanternWindow(Adw.ApplicationWindow):
             added = True
         if added and self._resources_win is not None:
             self._resources_win.refresh()
-        return added
 
     # ------------------------------------------------------------------
     # Preview wiring
@@ -722,6 +856,7 @@ class LanternWindow(Adw.ApplicationWindow):
         self.set_title(f"{self.document.title} — {APP_NAME}")
 
     def _show_welcome(self) -> None:
+        self._refresh_recents()
         self._content_stack.set_visible_child_name("welcome")
 
     def _toast(self, message: str, sticky: bool = False) -> None:

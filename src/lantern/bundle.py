@@ -26,6 +26,7 @@ there, and Save re-zips. This module owns that pack/unpack/scaffold plumbing.
 Part of Lantern, released under the GNU General Public License v3 or later.
 """
 
+import json
 import os
 import shutil
 import tempfile
@@ -49,6 +50,11 @@ MIMETYPE_FILE = "mimetype"
 # CSS can @font-face them with a relative path that survives unzip.
 IMAGES_DIR = "images"
 FONTS_DIR = "styles/fonts"
+
+# Bundle housekeeping metadata (title, author, dates). Kept out of the deck's
+# frontmatter so saving never rewrites the slides. Marp ignores the file.
+MANIFEST = "lantern.json"
+_FORMAT = 1
 
 # marp-cli auto-loads a .marprc.* from the deck's directory, so pointing
 # themeSet at styles/ makes both the preview and a hand-unzip resolve the
@@ -75,6 +81,7 @@ def scaffold(work_dir, deck_text: str) -> None:
     (work_dir / ".marprc.yml").write_text(_MARPRC, encoding="utf-8")
     (work_dir / "images").mkdir(exist_ok=True)
     (work_dir / "styles").mkdir(exist_ok=True)
+    write_meta(work_dir, {})
 
 
 def unpack(zip_path) -> Path:
@@ -120,6 +127,29 @@ def pack(work_dir, zip_path) -> None:
 def cleanup(work_dir) -> None:
     """Remove a working directory (best effort)."""
     shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Metadata — title, author, dates in lantern.json (housekeeping, not slides).
+# ---------------------------------------------------------------------------
+def read_meta(work_dir) -> dict:
+    """Load the bundle manifest. Returns {} when it's absent or unreadable."""
+    p = Path(work_dir) / MANIFEST
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_meta(work_dir, meta: dict) -> None:
+    """Write the bundle manifest, always stamping the format version."""
+    payload = {"format": _FORMAT}
+    payload.update({k: v for k, v in meta.items() if k != "format"})
+    (Path(work_dir) / MANIFEST).write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

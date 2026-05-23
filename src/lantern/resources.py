@@ -28,6 +28,75 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".avif"}
 FONT_EXTS = {".ttf", ".otf", ".woff", ".woff2"}
 
 
+def install_file_drop(widget, on_files, capture: bool = False) -> Gtk.DropTargetAsync:
+    """Wire an async file drop-target onto `widget`.
+
+    Calls `on_files(list_of_Gio_File)` once a drop's files have been read.
+
+    Reads the drag's `text/uri-list` rather than letting GdkFileList pick the
+    `application/vnd.portal.filetransfer` representation: under a flatpak that
+    portal path fails with "Invalid parent directory" for drags from a
+    non-sandboxed source, while uri-list carries real file:// paths the app can
+    already read via --filesystem=home. The read is async (and the stream is
+    spliced async) because a synchronous read would block the main loop
+    mid-transfer and deadlock. `capture=True` runs in the capture phase so the
+    editor claims image drops before GtkSourceView pastes the path in as text.
+    """
+    formats = Gdk.ContentFormats.new_for_gtype(Gdk.FileList)
+    target = Gtk.DropTargetAsync.new(formats, Gdk.DragAction.COPY)
+    if capture:
+        target.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+    def _uris_done(drop_obj, res, _u):
+        try:
+            stream, _mime = drop_obj.read_finish(res)
+        except GLib.Error:
+            drop_obj.finish(Gdk.DragAction(0))
+            return
+        out = Gio.MemoryOutputStream.new_resizable()
+        out.splice_async(
+            stream,
+            Gio.OutputStreamSpliceFlags.CLOSE_SOURCE | Gio.OutputStreamSpliceFlags.CLOSE_TARGET,
+            GLib.PRIORITY_DEFAULT, None, _splice_done, drop_obj)
+
+    def _splice_done(out, res, drop_obj):
+        try:
+            out.splice_finish(res)
+        except GLib.Error:
+            drop_obj.finish(Gdk.DragAction(0))
+            return
+        data = out.steal_as_bytes().get_data()
+        files = [Gio.File.new_for_uri(line.strip())
+                 for line in data.decode("utf-8", "replace").splitlines()
+                 if line.strip() and not line.startswith("#")]
+        drop_obj.finish(Gdk.DragAction.COPY)
+        on_files(files)
+
+    def _value_done(drop_obj, res, _u):
+        try:
+            value = drop_obj.read_value_finish(res)
+        except GLib.Error:
+            drop_obj.finish(Gdk.DragAction(0))
+            return
+        files = list(value.get_files()) if value is not None else []
+        drop_obj.finish(Gdk.DragAction.COPY)
+        on_files(files)
+
+    def _on_drop(_t, drop_obj, _x, _y) -> bool:
+        mimes = drop_obj.get_formats().get_mime_types() or []
+        if "text/uri-list" in mimes:
+            drop_obj.read_async(["text/uri-list"], GLib.PRIORITY_DEFAULT, None,
+                                _uris_done, None)
+        else:
+            drop_obj.read_value_async(Gdk.FileList, GLib.PRIORITY_DEFAULT, None,
+                                      _value_done, None)
+        return True
+
+    target.connect("drop", _on_drop)
+    widget.add_controller(target)
+    return target
+
+
 class ResourcesWindow(Adw.Window):
     """Floating, non-modal manager for the open deck's images and fonts.
 
@@ -61,9 +130,7 @@ class ResourcesWindow(Adw.Window):
         self.set_content(toolbar)
 
         # Drop files anywhere in the window to add them to the bundle.
-        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
-        drop.connect("drop", self._on_drop)
-        scroller.add_controller(drop)
+        install_file_drop(scroller, self._handle_dropped_files)
 
         self.refresh()
 
@@ -161,12 +228,12 @@ class ResourcesWindow(Adw.Window):
     # ------------------------------------------------------------------
     # Drop
     # ------------------------------------------------------------------
-    def _on_drop(self, _target, value, _x, _y) -> bool:
+    def _handle_dropped_files(self, files) -> None:
         work_dir = self._doc.work_dir
         if work_dir is None:
-            return False
+            return
         added = False
-        for gf in value.get_files():
+        for gf in files:
             path = gf.get_path()
             if not path:
                 continue
@@ -179,7 +246,6 @@ class ResourcesWindow(Adw.Window):
                 added = True
         if added:
             self.refresh()
-        return added
 
     # ------------------------------------------------------------------
     # Small widget helpers

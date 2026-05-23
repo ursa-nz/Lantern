@@ -67,6 +67,11 @@ class Document(GObject.Object):
 
     @property
     def title(self) -> str:
+        # A title set in the bundle's metadata wins over the file name.
+        if self._work_dir is not None:
+            meta_title = bundle.read_meta(self._work_dir).get("title", "")
+            if isinstance(meta_title, str) and meta_title.strip():
+                return meta_title.strip()
         if self._bundle_path:
             return bundle.display_name(self._bundle_path)
         return self._import_name or "Untitled"

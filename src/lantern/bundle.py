@@ -328,6 +328,42 @@ def set_theme_directive(deck_text: str, name: str) -> str:
     return deck_text[:m.start(1)] + new_fm + deck_text[m.end(1):]
 
 
+def slide_index_at_line(deck_text: str, line: int) -> int:
+    """The 0-based Marp slide index containing source `line` (also 0-based).
+
+    Marp breaks slides on a line that is exactly `---`. The leading frontmatter
+    block is skipped, and a `---` inside a fenced code block is ignored so a
+    horizontal rule in a sample doesn't shift the count.
+    """
+    lines = deck_text.split("\n")
+    if not lines:
+        return 0
+    line = max(0, min(line, len(lines) - 1))
+    # Closing line of the frontmatter block, if the deck opens with one.
+    fm_close = -1
+    if lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                fm_close = i
+                break
+    slide = 0
+    in_fence = False
+    fence = ""
+    for i in range(line + 1):
+        s = lines[i].strip()
+        if in_fence:
+            if fence and s.startswith(fence):
+                in_fence = False
+            continue
+        if s.startswith("```") or s.startswith("~~~"):
+            in_fence = True
+            fence = s[:3]
+            continue
+        if i > fm_close and s == "---":
+            slide += 1
+    return slide
+
+
 # ---------------------------------------------------------------------------
 # Theme discovery — Marp builtins, curated themes Lantern ships, and the
 # bundle's own custom CSS. available_themes() feeds the picker.

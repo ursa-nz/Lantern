@@ -25,10 +25,13 @@ class Editor(GObject.Object):
     every buffer mutation; callers debounce as needed.
     """
 
-    # __gsignals__ declares the custom signals this GObject emits.  Our
-    # one 'changed' signal takes no arguments — the window connects a
-    # debounced autosave to it without us tracking subscribers manually.
-    __gsignals__ = {"changed": (GObject.SignalFlags.RUN_FIRST, None, ())}
+    # __gsignals__ declares the custom signals this GObject emits.  'changed'
+    # fires on every buffer edit (the window debounces autosave on it);
+    # 'cursor-moved' fires when the caret moves (drives preview slide sync).
+    __gsignals__ = {
+        "changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "cursor-moved": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
 
     def __init__(self) -> None:
         super().__init__()
@@ -77,6 +80,10 @@ class Editor(GObject.Object):
         # Connect a bound method (not a lambda) so set_text() below can
         # temporarily block this exact callback by reference.
         self.buffer.connect("changed", self._on_buffer_changed)
+        # The caret is the buffer's "insert" mark; its offset is the
+        # cursor-position property, so notify fires whenever the caret moves.
+        self.buffer.connect("notify::cursor-position",
+                            lambda *_: self.emit("cursor-moved"))
 
     # ---------- text ----------
     def get_text(self) -> str:
@@ -84,6 +91,11 @@ class Editor(GObject.Object):
         start = self.buffer.get_start_iter()
         end = self.buffer.get_end_iter()
         return self.buffer.get_text(start, end, False)
+
+    def get_cursor_line(self) -> int:
+        """The 0-based line the caret is on."""
+        it = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        return it.get_line()
 
     def insert_at_cursor(self, text: str) -> None:
         """Insert `text` at the cursor. Fires 'changed', so the preview and

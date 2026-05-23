@@ -100,10 +100,13 @@ class LanternWindow(Adw.ApplicationWindow):
         # reloads the preview; the timeout coalesces a burst of write events.
         self._css_monitor = None
         self._css_reload_timeout = 0
+        # Debounce for syncing the preview to the slide under the cursor.
+        self._slide_sync_timeout = 0
 
         self._build_ui()
         self._install_shortcuts()
         self.editor.connect("changed", self._on_editor_changed)
+        self.editor.connect("cursor-moved", self._on_cursor_moved)
         self._install_editor_drop()
         self.connect("close-request", self._on_close_request)
         # Reset chrome if fullscreen is exited via the window manager
@@ -710,12 +713,22 @@ class LanternWindow(Adw.ApplicationWindow):
         self._author_row.set_text(self._state.get("author", ""))
         group.add(self._author_row)
         page.add(group)
+
+        preview = Adw.PreferencesGroup(title="Preview")
+        self._sync_row = Adw.SwitchRow(
+            title="Follow the cursor",
+            subtitle="Show the slide the cursor is on as you edit")
+        self._sync_row.set_active(self._state.get("sync_slide", True))
+        preview.add(self._sync_row)
+        page.add(preview)
+
         dlg.add(page)
         dlg.connect("closed", self._on_preferences_closed)
         dlg.present(self)
 
     def _on_preferences_closed(self, _dlg) -> None:
         self._state["author"] = self._author_row.get_text().strip()
+        self._state["sync_slide"] = self._sync_row.get_active()
         _save_state(self._state)
 
     def _show_properties(self) -> None:
@@ -946,6 +959,27 @@ class LanternWindow(Adw.ApplicationWindow):
         return GLib.SOURCE_REMOVE
 
     # ------------------------------------------------------------------
+    # Slide sync — follow the cursor in the preview
+    # ------------------------------------------------------------------
+    def _on_cursor_moved(self, _editor) -> None:
+        # Opt-out via Preferences. Debounced so dragging the caret doesn't
+        # fire a navigation per line.
+        if not self._state.get("sync_slide", True):
+            return
+        if self._slide_sync_timeout:
+            GLib.source_remove(self._slide_sync_timeout)
+        self._slide_sync_timeout = GLib.timeout_add(120, self._sync_slide_fire)
+
+    def _sync_slide_fire(self) -> bool:
+        self._slide_sync_timeout = 0
+        if self.document.deck_path is None:
+            return GLib.SOURCE_REMOVE
+        idx = bundle.slide_index_at_line(self.editor.get_text(),
+                                         self.editor.get_cursor_line())
+        self.preview.goto_slide(idx)
+        return GLib.SOURCE_REMOVE
+
+    # ------------------------------------------------------------------
     # Layout toggle
     # ------------------------------------------------------------------
     def _on_layout_toggled(self, btn: Gtk.ToggleButton, mode: str) -> None:
@@ -1010,6 +1044,9 @@ class LanternWindow(Adw.ApplicationWindow):
         if self._css_reload_timeout:
             GLib.source_remove(self._css_reload_timeout)
             self._css_reload_timeout = 0
+        if self._slide_sync_timeout:
+            GLib.source_remove(self._slide_sync_timeout)
+            self._slide_sync_timeout = 0
         if self._css_monitor is not None:
             self._css_monitor.cancel()
             self._css_monitor = None

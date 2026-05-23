@@ -51,6 +51,18 @@ class Preview:
         if self._current_url:
             self.web_view.reload()
 
+    def goto_slide(self, index: int) -> None:
+        """Show the slide at 0-based `index` in the live preview.
+
+        marp's bespoke deck numbers slides from 1 in the URL fragment and
+        navigates on hashchange, so setting the hash jumps to the slide
+        without a reload. No-op until a deck has loaded.
+        """
+        if not self._current_url or index < 0:
+            return
+        self.web_view.evaluate_javascript(
+            f"location.hash = '{index + 1}';", -1, None, None, None, None)
+
     def load_placeholder(self, message: str = "") -> None:
         """Show a dim card with `message` (or a default hint when empty)."""
         msg = message or "Preview will appear once a file is open."

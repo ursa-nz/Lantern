@@ -1,9 +1,10 @@
 name: Build & Release Flatpak
 
-# Builds the Lantern .flatpak bundle.  On a pushed version tag (v0.1.0,
-# v1.2.3, etc.) it also creates a GitHub Release and attaches the bundle.
-# Manual triggers via the Actions tab build and upload as a workflow
-# artifact only — no release is created without a tag.
+# Builds the Lantern .flatpak bundle for x86_64 and aarch64.  A single-file
+# bundle is one-arch, so each arch is built natively — GitHub's free ubuntu
+# ARM runner handles aarch64, so no QEMU emulation — and we ship one bundle
+# per arch.  On a pushed version tag (v0.1.0, etc.) the release job attaches
+# both bundles; manual dispatch builds and uploads workflow artifacts only.
 
 on:
   push:
@@ -14,15 +15,22 @@ on:
 permissions:
   contents: write           # needed to create the release
 
-# One run per tag at a time; cancel any redundant build for the same ref.
 concurrency:
   group: build-flatpak-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build flatpak bundle
-    runs-on: ubuntu-latest
+    name: Build bundle (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm    # GitHub-hosted native ARM (free for public repos)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,30 +41,45 @@ jobs:
           sudo apt-get install -y flatpak flatpak-builder
 
       - name: Cache flatpak runtime + SDK
-        # The GNOME 49 Platform/Sdk and node22 extension together come to
-        # well over a gig.  Caching them across runs cuts a fresh build
-        # from ~10 min down to ~3 min.
+        # The GNOME 49 Platform/Sdk and node22 extension come to well over a
+        # gig; caching the per-arch user flatpak dir cuts rebuilds sharply.
         uses: actions/cache@v4
         with:
           path: ~/.local/share/flatpak
-          key: flatpak-runtime-${{ runner.os }}-gnome49-node22-v1
+          key: flatpak-runtime-${{ matrix.arch }}-gnome49-node22-v1
 
       - name: Build bundle
         run: ./scripts/build-flatpak.sh
 
+      - name: Tag bundle with its arch
+        # build-flatpak.sh always writes nz.ursa.Lantern.flatpak; rename so the
+        # two arches' artifacts and release assets don't collide.
+        run: mv build/nz.ursa.Lantern.flatpak build/nz.ursa.Lantern-${{ matrix.arch }}.flatpak
+
       - name: Upload as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nz.ursa.Lantern.flatpak
-          path: build/nz.ursa.Lantern.flatpak
+          name: nz.ursa.Lantern-${{ matrix.arch }}.flatpak
+          path: build/nz.ursa.Lantern-${{ matrix.arch }}.flatpak
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attach to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect both bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attach bundles to the release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/nz.ursa.Lantern.flatpak
+          files: dist/*.flatpak
           fail_on_unmatched_files: true
           generate_release_notes: true
           draft: false

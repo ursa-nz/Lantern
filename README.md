@@ -1,12 +1,12 @@
 # Lantern
 
-A small GUI for authoring [Marp](https://marp.app/) slides on GNOME. Edit on the left, see the slide render on the right, present from the same window.
+A small GUI for authoring [Marp](https://marp.app/) slides on GNOME. Edit on the left, see the slide render on the right, present from the same window. The whole deck saves as one file.
 
 Named after the magic lantern: the 1600s slide projector that came two centuries before cinema, where a presenter would burn an oil lamp behind painted glass slides and talk, sing or play music to the projected image. Same idea, a bit *cooler* (sorry).
 
 ## Standing on shoulders
 
-Lantern doesn't render slides, parse Markdown, draw the window, or export PDFs — other people's software does all of that. Lantern just wires them together behind a GUI. 
+Lantern doesn't render slides, parse Markdown, draw the window, or make PDFs. Other people's software does all that. Lantern just wires it together behind a GUI.
 
 Sincere thanks to:
 - [Marp](https://marp.app/),
@@ -14,7 +14,7 @@ Sincere thanks to:
 - [libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/),
 - [GtkSourceView](https://gitlab.gnome.org/GNOME/gtksourceview),
 - [WebKitGTK](https://webkitgtk.org/),
-- [chrome-headless-shell](https://developer.chrome.com/blog/chrome-headless-shell),
+- [pandoc](https://pandoc.org/),
 - [Node.js](https://nodejs.org/),
 - [Flatpak](https://flatpak.org/),
 - [IBM Plex Mono](https://www.ibm.com/plex/) — bundled under the [SIL OFL 1.1](data/fonts/IBMPlexMono/LICENSE.txt) for the editor typography, and
@@ -42,31 +42,25 @@ flatpak install --user build/nz.ursa.Lantern.flatpak
 flatpak run nz.ursa.Lantern
 ```
 
-**Local install (for hacking on the Python).** HTML export works; PDF/PPTX don't (no bundled Chromium outside the flatpak).
+**Local install (for hacking on the Python).** PDF and HTML export work. PPTX needs `pandoc` on your PATH.
 
 ```
 sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
                  gir1.2-gtksource-5 gir1.2-webkit-6.0 \
-                 nodejs npm flatpak xdg-utils
+                 nodejs npm pandoc flatpak xdg-utils
 ./scripts/install-local.sh    # ./scripts/uninstall-local.sh to remove
 ```
 
 ## Using it
 
-- New / Open from the welcome screen or burger menu.
+- New makes a `.lantern` deck. Open a `.lantern`, or open a `.md` to import it.
 - Layout toggle in the header: editor / split / preview.
-- Present in window — borderless, keeps current size (good for Zoom).
-- Present fullscreen — F5. Escape exits either present mode.
-- Export → HTML / PDF / PPTX from the burger menu.
-- Autosave is on; no save button.
-
-## chrome-headless-shell
-
-The bundled binary is Google's headless Chromium build. For headless render-to-PDF it makes no network calls beyond loading the local HTML marp generated. To swap in ungoogled-chromium, set `CHROME_PATH` before launch:
-
-```
-CHROME_PATH=/path/to/ungoogled-chromium flatpak run nz.ursa.Lantern
-```
+- Drop an image onto the editor to add it. Lantern asks inline or background.
+- Resources button: a floating window for the deck's images and fonts.
+- Present in a window: borderless, keeps the current size (good for Zoom).
+- Present fullscreen with F5. Escape exits either present mode.
+- Export to HTML, PDF, or PPTX from the burger menu.
+- Ctrl+S saves the `.lantern`. Autosave keeps the preview live.
 
 ## Layout
 
@@ -80,7 +74,7 @@ scripts/          install-local, uninstall-local, build-flatpak
 
 ## Status
 
-Open / new / edit / live preview / autosave / two present modes / export to HTML, PDF, PPTX — all working. Not built yet: recent files, settings, presenter notes view, PNG/JPEG export.
+Open, new, edit, live preview, autosave, two present modes, export to HTML, PDF, and PPTX, `.lantern` bundles, drag in images and fonts. All working. Not built yet: recent files, settings, presenter notes, a styles picker, PNG/JPEG export.
 
 ## License
 

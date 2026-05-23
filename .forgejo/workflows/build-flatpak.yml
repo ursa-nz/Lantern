@@ -1,0 +1,85 @@
+name: Build & Release Flatpak
+
+# Forgejo Actions port of .github/workflows/build-flatpak.yml.
+# Forgejo runs workflows from .forgejo/workflows/ and ignores .github/ when
+# this directory exists; GitHub only reads .github/. So the two CIs coexist:
+# pushing the same commit builds on both forges with their native release flow.
+#
+# On a pushed version tag (v0.1.0, etc.) this builds the bundle and creates a
+# Forgejo release with the .flatpak attached. Manual dispatch builds and
+# uploads a workflow artifact only.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write           # needed to create the release
+
+concurrency:
+  group: build-flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build flatpak bundle
+    runs-on: ubuntu-latest
+    # The container must ship node, since checkout/cache/upload-artifact are
+    # Node actions the runner executes inside it (a plain ubuntu image has no
+    # node -> exit 127). catthehacker's act image bundles node + apt + sudo;
+    # act-24.04 is the newest Ubuntu base they publish. --privileged lets
+    # flatpak-builder's bwrap create namespaces (the runner must also allow
+    # privileged). The bundle builds against the GNOME 49 SDK regardless of
+    # this host's Ubuntu version.
+    container:
+      image: catthehacker/ubuntu:act-24.04
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install flatpak and flatpak-builder
+        run: |
+          apt-get update
+          apt-get install -y flatpak flatpak-builder
+
+      - name: Cache flatpak runtime + SDK
+        # GNOME 49 Platform/Sdk plus the node22 extension come to well over a
+        # gig; caching the user flatpak dir cuts subsequent builds down sharply.
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-runtime-gnome49-node22-v1
+
+      - name: Build bundle
+        run: ./scripts/build-flatpak.sh
+
+      - name: Upload as workflow artifact
+        # Forgejo's runner doesn't support the v2 artifact backend that
+        # upload-artifact@v4 requires (it reports as GHES); v3 uses the older
+        # protocol that works here.
+        uses: actions/upload-artifact@v3
+        with:
+          name: nz.ursa.Lantern.flatpak
+          path: build/nz.ursa.Lantern.flatpak
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stage release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p dist
+          cp build/nz.ursa.Lantern.flatpak dist/
+
+      - name: Create Forgejo release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: https://code.forgejo.org/actions/forgejo-release@v2
+        with:
+          direction: upload
+          url: ${{ github.server_url }}
+          repo: ${{ github.repository }}
+          tag: ${{ github.ref_name }}
+          release-dir: dist
+          token: ${{ secrets.GITHUB_TOKEN }}

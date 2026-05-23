@@ -62,6 +62,15 @@ MANIFEST_ABS="$(pwd)/${MANIFEST}"   # flatpak-builder resolves sources relative 
 
 rm -rf "${BUILD_DIR}"
 
+# rofiles-fuse needs /dev/fuse, which isn't exposed in many CI containers
+# (even privileged ones). Disable it only when fuse is unavailable so local
+# and GitHub builds keep the read-only build-dir protection.
+rofiles_args=()
+if [ ! -e /dev/fuse ]; then
+    warn "/dev/fuse not available — disabling rofiles-fuse for this build"
+    rofiles_args+=(--disable-rofiles-fuse)
+fi
+
 log "Running flatpak-builder (work dir: ${WORK_ROOT})..."
 flatpak-builder \
     --force-clean \
@@ -69,6 +78,7 @@ flatpak-builder \
     --install-deps-from=flathub \
     --state-dir="${WORK_ROOT}/.flatpak-builder" \
     --repo="${REPO_DIR}" \
+    "${rofiles_args[@]}" \
     "${BUILD_DIR}" \
     "${MANIFEST_ABS}"
 

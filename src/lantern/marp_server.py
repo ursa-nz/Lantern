@@ -77,6 +77,11 @@ class MarpServer:
             [marp_bin, "--server", directory],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            # Close stdin: if marp inherits an open stdin pipe it waits on it
+            # for piped Markdown and never starts the server (so the preview
+            # would just time out). A desktop launch hands us /dev/null, but
+            # any pipe-bearing parent — a terminal launch, a wrapper — wouldn't.
+            stdin=subprocess.DEVNULL,
             env=env,
             cwd=directory,
             text=True,

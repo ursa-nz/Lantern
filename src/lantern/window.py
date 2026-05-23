@@ -27,7 +27,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from lantern import APP_ID, APP_NAME, bundle, export, resources
+from lantern import APP_ID, APP_NAME, bundle, export, guide, resources
 from lantern.document import Document
 from lantern.editor import Editor
 from lantern.marp_server import MarpServer
@@ -233,6 +233,7 @@ class LanternWindow(Adw.ApplicationWindow):
         view_section.append_submenu("Export…", export_menu)
         menu.append_section(None, view_section)
         meta_section = Gio.Menu()
+        meta_section.append("Guide", "win.guide")
         meta_section.append("Preferences", "win.preferences")
         meta_section.append(f"About {APP_NAME}", "app.about")
         menu.append_section(None, meta_section)
@@ -274,6 +275,13 @@ class LanternWindow(Adw.ApplicationWindow):
         prefs_action = Gio.SimpleAction.new("preferences", None)
         prefs_action.connect("activate", lambda *_: self._show_preferences())
         self.add_action(prefs_action)
+
+        # win.guide — F1 opens the in-app beginner guide.
+        guide_action = Gio.SimpleAction.new("guide", None)
+        guide_action.connect("activate", lambda *_: self._show_guide())
+        self.add_action(guide_action)
+        if app:
+            app.set_accels_for_action("win.guide", ["F1"])
 
         # win.present — F5 toggles fullscreen present mode.
         action = Gio.SimpleAction.new("present", None)
@@ -716,6 +724,9 @@ class LanternWindow(Adw.ApplicationWindow):
             if author:
                 meta.setdefault("author", author)
         bundle.write_meta(wd, meta)
+
+    def _show_guide(self) -> None:
+        guide.GuideDialog().present(self)
 
     def _show_preferences(self) -> None:
         dlg = Adw.PreferencesDialog()

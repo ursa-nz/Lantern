@@ -98,7 +98,7 @@ def _export_html(md_path, out_path, on_done) -> None:
 def _export_pptx(md_path, out_path, on_done) -> None:
     pandoc = _find_pandoc()
     if not pandoc:
-        _report(on_done, False, "pandoc not found — PPTX export needs pandoc")
+        _report(on_done, False, "pandoc not found. PPTX export needs pandoc")
         return
     # pandoc produces a native, editable deck (text boxes, not slide images).
     # It ignores the marp theme by design; that's the accepted trade.
@@ -110,7 +110,7 @@ def _done_if_written(on_done, ok: bool, out_path: str, err: str) -> None:
     if ok and Path(out_path).exists():
         _report(on_done, True, f"Exported {Path(out_path).name}")
     else:
-        _report(on_done, False, f"Export failed: {err}")
+        _report(on_done, False, f"Export failed. {err}")
 
 
 def _subprocess(args, cwd) -> tuple[bool, str]:
@@ -158,7 +158,7 @@ def _export_pdf(md_path, out_path, on_done) -> None:
         )
         if not ok or not html.exists():
             shutil.rmtree(tmp, ignore_errors=True)
-            _report(on_done, False, f"Export failed: {err}")
+            _report(on_done, False, f"Export failed. {err}")
             return
         # WebKit must run on the main loop.
         GLib.idle_add(_start_pdf_print, html, out_path, on_done)
@@ -222,7 +222,7 @@ class _PdfPrinter:
         op.set_print_settings(self._settings())
         op.set_page_setup(self._page_setup())
         op.connect("finished", lambda *_: self._finish(True, f"Exported {Path(self._out).name}"))
-        op.connect("failed", lambda _o, e: self._finish(False, f"PDF export failed: {e.message}"))
+        op.connect("failed", lambda _o, e: self._finish(False, f"PDF export failed. {e.message}"))
         # `print` is a builtin; gi exposes the method as print() or print_().
         (getattr(op, "print", None) or getattr(op, "print_"))()
         return False

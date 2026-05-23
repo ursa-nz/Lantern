@@ -135,7 +135,7 @@ class LanternWindow(Adw.ApplicationWindow):
         self._header.pack_end(self._build_menu_button())
         # Resources: a toggle that shows the floating images/fonts window.
         self._resources_btn = Gtk.ToggleButton(icon_name="image-x-generic-symbolic")
-        self._resources_btn.set_tooltip_text("Resources — images & fonts")
+        self._resources_btn.set_tooltip_text("Theme, images, and fonts")
         self._resources_btn.set_sensitive(False)
         self._resources_btn.connect("toggled", self._on_resources_toggled)
         self._header.pack_end(self._resources_btn)
@@ -420,7 +420,7 @@ class LanternWindow(Adw.ApplicationWindow):
         try:
             self.document.write_working(self.editor.get_text())
         except OSError as e:
-            self._toast(f"Couldn't flush before export: {e}", sticky=True)
+            self._toast(f"Couldn't save before exporting. {e}", sticky=True)
             return
 
         self._toast(f"Exporting {label}…")
@@ -578,7 +578,7 @@ class LanternWindow(Adw.ApplicationWindow):
         try:
             self.document.save(text, path=path)
         except OSError as e:
-            self._toast(f"Couldn't create bundle: {e}", sticky=True)
+            self._toast(f"Couldn't create the deck. {e}", sticky=True)
             return
         self._remember_folder(path)
         self._adopt_view(text)
@@ -610,7 +610,7 @@ class LanternWindow(Adw.ApplicationWindow):
                 # Anything else is treated as Markdown to import.
                 text = self.document.import_md(p)
         except (OSError, ValueError, UnicodeDecodeError) as e:
-            self._toast(f"Couldn't open: {e}", sticky=True)
+            self._toast(f"Couldn't open that. {e}", sticky=True)
             return
         if self.document.bundle_path:
             self._remember_folder(self.document.bundle_path)
@@ -626,7 +626,7 @@ class LanternWindow(Adw.ApplicationWindow):
                 self.document.save(self.editor.get_text())
                 self._toast("Saved")
             except OSError as e:
-                self._toast(f"Save failed: {e}", sticky=True)
+                self._toast(f"Couldn't save. {e}", sticky=True)
         else:
             self._save_as()
 
@@ -656,7 +656,7 @@ class LanternWindow(Adw.ApplicationWindow):
             self._toast("Saved")
             self._remember_folder(path)
         except OSError as e:
-            self._toast(f"Save failed: {e}", sticky=True)
+            self._toast(f"Couldn't save. {e}", sticky=True)
 
     def _adopt_view(self, text: str) -> None:
         """Show the just-loaded deck: editor text, preview, enable actions."""
@@ -836,7 +836,7 @@ class LanternWindow(Adw.ApplicationWindow):
         try:
             self.document.write_working(self.editor.get_text())
         except OSError as e:
-            self._toast(f"Couldn't update the deck: {e}")
+            self._toast(f"Couldn't update the deck. {e}")
             return
         if self.document.is_saved:
             self.action_save()
@@ -955,7 +955,7 @@ class LanternWindow(Adw.ApplicationWindow):
         try:
             self.document.write_working(self.editor.get_text())
         except OSError as e:
-            self._toast(f"Autosave failed: {e}")
+            self._toast(f"Autosave failed. {e}")
         return GLib.SOURCE_REMOVE
 
     # ------------------------------------------------------------------
@@ -1002,7 +1002,7 @@ class LanternWindow(Adw.ApplicationWindow):
     def _on_path_changed(self, *_):
         self._title.set_title(self.document.title)
         self._title.set_subtitle(self.document.subtitle)
-        self.set_title(f"{self.document.title} — {APP_NAME}")
+        self.set_title(self.document.title)
 
     def _show_welcome(self) -> None:
         self._refresh_recents()

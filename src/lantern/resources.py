@@ -311,8 +311,8 @@ class ResourcesWindow(Adw.Window):
             return
         dlg = Adw.AlertDialog(
             heading="Delete an asset that's in use?",
-            body=f"{_basename(rel)} is referenced {uses} time(s) in the deck; "
-                 "deleting it will break those references.")
+            body=f"{_basename(rel)} is referenced {uses} time(s) in the deck. "
+                 "Deleting it will break those references.")
         dlg.add_response("cancel", "Cancel")
         dlg.add_response("delete", "Delete")
         dlg.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)

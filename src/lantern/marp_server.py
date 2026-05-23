@@ -101,7 +101,7 @@ class MarpServer:
                 except (OSError, ValueError):
                     tail = ""
             if tail:
-                raise TimeoutError(f"{e}. marp said: {tail}") from None
+                raise TimeoutError(f"{e}. marp said {tail}") from None
             raise
 
         self.port = port

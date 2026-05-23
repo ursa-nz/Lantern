@@ -73,14 +73,14 @@
     <release version="1.0.0" date="2026-05-23">
       <description>
         <p>
-          Lantern 1.0. This release is about style: choose a theme, edit its
+          Lantern 1.0. This release is about style. Choose a theme, edit its
           CSS, and place images with real control. The rest is polish that
           added up along the way.
         </p>
         <ul>
-          <li>Choose a theme: a Marp built-in, one Lantern ships (Ink or Dusk), or your own.</li>
+          <li>Choose a Marp built-in theme, one Lantern ships (Ink or Dusk), or your own.</li>
           <li>Edit the theme CSS in your editor. Save, and the preview follows.</li>
-          <li>Place an image with options that matter: inline or background, size, split, and filters.</li>
+          <li>Place an image with options that matter. Inline or background, size, split, and filters.</li>
           <li>Set the body, heading, or monospace font from the deck's own fonts.</li>
           <li>Title a deck, name its author, and reopen recent decks from the welcome screen.</li>
           <li>See your newest images first, and sort the list when you need to.</li>

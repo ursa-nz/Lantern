@@ -55,13 +55,14 @@ sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
 
 - New makes a `.lantern` deck. Open a `.lantern`, or open a `.md` to import it.
 - Recent decks show on the welcome screen.
-- Layout toggle in the header: editor / split / preview.
+- Layout toggle in the header. Editor, split, or preview.
+- The preview follows your cursor to the slide you are editing. Turn that off in Preferences.
 - Drop an image onto the editor to add it. A dialog sets placement, size, and filters.
-- Resources button: a floating window for the deck's theme, images, and fonts.
-- Pick a theme in Resources: a Marp theme, one Lantern ships (Ink or Dusk), or your own. Edit CSS opens it in your editor.
+- Resources button opens a floating window for the deck's theme, images, and fonts.
+- Pick a theme in Resources. A Marp theme, one Lantern ships (Ink or Dusk), or your own. Edit CSS opens it in your editor.
 - Set a font as the body, heading, or monospace face. Lantern builds the theme and the preview updates live.
 - Properties sets the deck's title and author. Preferences holds your default author name.
-- Present in a window: borderless, keeps the current size (good for Zoom).
+- Present in a window. Borderless, keeps the current size, good for Zoom.
 - Present fullscreen with F5. Escape exits either present mode.
 - Export to HTML, PDF, or PPTX from the burger menu.
 - Ctrl+S saves the `.lantern`. Autosave keeps the preview live.
@@ -78,7 +79,7 @@ scripts/          install-local, uninstall-local, build-flatpak
 
 ## Status
 
-Open, new, edit, live preview, autosave, two present modes, export to HTML, PDF, and PPTX, `.lantern` bundles, drag in images and fonts with a placement dialog, recent files, deck title and author, fonts for body/headings/code, a theme picker with editable CSS. All working. Not built yet: PNG/JPEG export.
+Open, new, edit, live preview, autosave, two present modes, export to HTML, PDF, and PPTX, `.lantern` bundles, drag in images and fonts with a placement dialog, recent files, deck title and author, fonts for body/headings/code, a theme picker with editable CSS, and a preview that follows your cursor. All working. PNG and JPEG export is the one thing not built yet.
 
 ## Flathub
 

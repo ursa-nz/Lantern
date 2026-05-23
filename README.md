@@ -80,6 +80,10 @@ scripts/          install-local, uninstall-local, build-flatpak
 
 Open, new, edit, live preview, autosave, two present modes, export to HTML, PDF, and PPTX, `.lantern` bundles, drag in images and fonts with a placement dialog, recent files, deck title and author, fonts for body/headings/code, a theme picker with editable CSS. All working. Not built yet: PNG/JPEG export.
 
+## Flathub
+
+Not yet. The live preview runs a small local web server so the page can hot reload while you type. For now that server listens on every network interface, so on an untrusted network someone could reach your open deck while Lantern is running. A loopback-only preview that closes this gap is in the works. That is the main thing standing between Lantern and a Flathub submission.
+
 ## License
 
 Copyright © 2026 ursa.nz. Released under the GNU General Public License, version 3.0 or later. See `LICENSE` for the full text.

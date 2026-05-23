@@ -90,7 +90,7 @@ class LanternWindow(Adw.ApplicationWindow):
 
         self.marp = MarpServer()
         self.editor = Editor()
-        self.preview = Preview()
+        self.preview = Preview(on_reload=self._refresh_preview)
 
         self._state = _load_state()
         self._save_timeout = 0
@@ -226,6 +226,7 @@ class LanternWindow(Adw.ApplicationWindow):
         file_section.append("Properties…", "win.properties")
         menu.append_section(None, file_section)
         view_section = Gio.Menu()
+        view_section.append("Reload preview", "win.reload-preview")
         export_menu = Gio.Menu()
         for suffix, label, _ext in EXPORT_FORMATS:
             export_menu.append(label, f"win.export-{suffix}")
@@ -302,6 +303,14 @@ class LanternWindow(Adw.ApplicationWindow):
             act.set_enabled(False)
             self.add_action(act)
             self._export_actions.append(act)
+
+        # win.reload-preview — rebuild the preview. Also offered on the
+        # preview's own error page. Disabled until a deck is open.
+        reload_action = Gio.SimpleAction.new("reload-preview", None)
+        reload_action.connect("activate", lambda *_: self._refresh_preview())
+        reload_action.set_enabled(False)
+        self.add_action(reload_action)
+        self._reload_preview_action = reload_action
 
         # Escape: only meaningful while presenting.  Use a key controller
         # in the CAPTURE phase on the window so we see Escape *before*
@@ -661,13 +670,18 @@ class LanternWindow(Adw.ApplicationWindow):
     def _adopt_view(self, text: str) -> None:
         """Show the just-loaded deck: editor text, preview, enable actions."""
         self.editor.set_text(text)
-        self._start_preview(self.document.deck_path)
+        # Show the doc page before pointing the preview at the server. WebKit
+        # can silently drop a load into an unmapped view, which leaves the
+        # placeholder up (the stuck preview the reload button also rescues), so
+        # the WebView needs to be on screen first.
         self._content_stack.set_visible_child_name("doc")
+        self._start_preview(self.document.deck_path)
         self._save_action.set_enabled(True)
         self._properties_action.set_enabled(True)
         self._present_action.set_enabled(True)
         self._present_windowed_action.set_enabled(True)
         self._resources_btn.set_sensitive(True)
+        self._reload_preview_action.set_enabled(True)
         for act in self._export_actions:
             act.set_enabled(True)
         if self._resources_win is not None:
@@ -923,14 +937,29 @@ class LanternWindow(Adw.ApplicationWindow):
     # ------------------------------------------------------------------
     # Preview wiring
     # ------------------------------------------------------------------
+    def _refresh_preview(self) -> None:
+        """Re-establish the preview when it hasn't come up on its own.
+
+        Flush the latest text, then stop and restart the marp server and
+        reload. This clears a stuck "Preview will appear once a file is open."
+        when the server wedged or a first render was missed.
+        """
+        if self.document.deck_path is None:
+            return
+        try:
+            self.document.write_working(self.editor.get_text())
+        except OSError:
+            pass
+        self.marp.stop()
+        self._start_preview(self.document.deck_path)
+
     def _start_preview(self, deck_path: Path) -> None:
         # marp --server watches the deck's directory; for a bundle that's the
         # small working dir, so the server binds quickly.
         try:
             self.marp.start_for_directory(deck_path.parent)
         except (RuntimeError, TimeoutError) as e:
-            self._toast(str(e))
-            self.preview.load_placeholder("Preview unavailable. Is marp installed?")
+            self.preview.show_error(str(e))
             return
         self.preview.load_url(self.marp.url_for(deck_path))
 

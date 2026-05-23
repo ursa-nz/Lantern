@@ -105,7 +105,7 @@ class ResourcesWindow(Adw.Window):
     """
 
     def __init__(self, parent, document, on_insert, get_deck_text,
-                 on_assign_font, on_pick_theme) -> None:
+                 on_assign_font, on_pick_theme, on_edit_css) -> None:
         super().__init__(title="Resources", transient_for=parent, modal=False,
                          default_width=380, default_height=560)
         self._doc = document
@@ -113,17 +113,24 @@ class ResourcesWindow(Adw.Window):
         self._get_deck_text = get_deck_text
         self._on_assign_font = on_assign_font
         self._on_pick_theme = on_pick_theme
+        self._on_edit_css = on_edit_css
         self._rows: list = []   # every row we've added, so refresh can clear them
 
-        # Theme: a base-theme dropdown. Selecting writes the deck's `theme:`
-        # directive (see window._pick_theme). _suppress_theme stops the
-        # programmatic selection refresh() makes from looping back as a pick.
+        # Theme: a base-theme dropdown plus an Edit CSS action. Selecting writes
+        # the deck's `theme:` directive (see window._pick_theme). _suppress_theme
+        # stops the programmatic selection refresh() makes from looping back.
         self._theme = Adw.PreferencesGroup(title="Theme")
         self._theme_descriptors: list = []
         self._suppress_theme = False
         self._theme_combo = Adw.ComboRow(title="Base theme")
         self._theme_combo.connect("notify::selected", self._on_theme_selected)
         self._theme.add(self._theme_combo)
+        edit_css = Adw.ActionRow(title="Edit CSS",
+                                 subtitle="Open this deck's theme in your editor",
+                                 activatable=True)
+        edit_css.add_suffix(Gtk.Image.new_from_icon_name("document-edit-symbolic"))
+        edit_css.connect("activated", lambda _r: self._on_edit_css())
+        self._theme.add(edit_css)
 
         self._images = Adw.PreferencesGroup(title="Images")
         self._images.set_header_suffix(self._add_button(self._on_add_image))

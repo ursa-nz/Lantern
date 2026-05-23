@@ -96,6 +96,10 @@ class LanternWindow(Adw.ApplicationWindow):
         self._save_timeout = 0
         self._layout = LAYOUT_SPLIT
         self._resources_win = None
+        # "Edit CSS" watches the theme file so an external editor's save
+        # reloads the preview; the timeout coalesces a burst of write events.
+        self._css_monitor = None
+        self._css_reload_timeout = 0
 
         self._build_ui()
         self._install_shortcuts()
@@ -759,7 +763,7 @@ class LanternWindow(Adw.ApplicationWindow):
         if btn.get_active():
             self._resources_win = resources.ResourcesWindow(
                 self, self.document, self.editor.insert_at_cursor, self.editor.get_text,
-                self._assign_font, self._pick_theme)
+                self._assign_font, self._pick_theme, self._edit_css)
             self._resources_win.connect("close-request", self._on_resources_close)
             self._resources_win.present()
         elif self._resources_win is not None:
@@ -824,6 +828,63 @@ class LanternWindow(Adw.ApplicationWindow):
         if self.document.is_saved:
             self.action_save()
         self.preview.reload()
+
+    def _edit_css(self) -> None:
+        """Open the deck's theme CSS in the user's editor.
+
+        Curated/custom bases have a file in styles/ to open directly. A builtin
+        base has none, so fork it into an editable custom theme that imports the
+        builtin, switch the deck to it, and open that. A file monitor reloads
+        the preview when the editor saves.
+        """
+        wd = self.document.work_dir
+        if wd is None:
+            return
+        base = bundle.base_theme(wd)
+        path = bundle.theme_css_path(wd, base)
+        if path is None:
+            path = bundle.ensure_custom_theme(wd, import_base=base)
+            bundle.set_base_theme(wd, bundle.CUSTOM_THEME_NAME)
+            self._reconcile_theme()
+            if self._resources_win is not None:
+                self._resources_win.refresh()
+        self._watch_css(path)
+        launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(str(path)))
+        launcher.launch(self, None, self._on_css_launched)
+
+    def _on_css_launched(self, launcher, result) -> None:
+        try:
+            launcher.launch_finish(result)
+        except GLib.Error:
+            self._toast("Couldn't open an editor for the theme CSS.", sticky=True)
+
+    def _watch_css(self, path) -> None:
+        """Watch `path` so an external editor's save reloads the preview."""
+        if self._css_monitor is not None:
+            self._css_monitor.cancel()
+        gfile = Gio.File.new_for_path(str(path))
+        self._css_monitor = gfile.monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+        self._css_monitor.connect("changed", self._on_css_changed)
+
+    def _on_css_changed(self, _monitor, _f, _other, event) -> None:
+        # Many editors emit a burst (or an atomic rename) per save, so coalesce
+        # to a single reload a short moment after the last event.
+        reload_events = (
+            Gio.FileMonitorEvent.CHANGES_DONE_HINT,
+            Gio.FileMonitorEvent.CREATED,
+            Gio.FileMonitorEvent.RENAMED,
+            Gio.FileMonitorEvent.MOVED_IN,
+        )
+        if event not in reload_events:
+            return
+        if self._css_reload_timeout:
+            GLib.source_remove(self._css_reload_timeout)
+        self._css_reload_timeout = GLib.timeout_add(250, self._css_reload_fire)
+
+    def _css_reload_fire(self) -> bool:
+        self._css_reload_timeout = 0
+        self.preview.reload()
+        return GLib.SOURCE_REMOVE
 
     def _install_editor_drop(self) -> None:
         # Drop an image onto the editor: bundle it, then ask inline vs
@@ -946,6 +1007,12 @@ class LanternWindow(Adw.ApplicationWindow):
                 self.document.save(text)
         except OSError:
             pass
+        if self._css_reload_timeout:
+            GLib.source_remove(self._css_reload_timeout)
+            self._css_reload_timeout = 0
+        if self._css_monitor is not None:
+            self._css_monitor.cancel()
+            self._css_monitor = None
         if self._resources_win is not None:
             self._resources_win.destroy()
         self.marp.stop()

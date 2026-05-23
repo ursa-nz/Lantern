@@ -146,7 +146,10 @@ def pack(work_dir, zip_path) -> None:
     zip_path = Path(zip_path)
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = zip_path.with_name(zip_path.name + ".tmp")
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+    # strict_timestamps=False clamps any pre-1980 mtime (e.g. OSTree zeroes the
+    # timestamps on flatpak-shipped files) up to 1980 instead of raising, so a
+    # stray old mtime on a bundled asset can never crash a save.
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
         marker = zipfile.ZipInfo(MIMETYPE_FILE)
         marker.compress_type = zipfile.ZIP_STORED   # must be uncompressed
         zf.writestr(marker, MIME_TYPE.encode("ascii"))

@@ -106,6 +106,7 @@ def default_template(title: str) -> str:
     """
     return f"""---
 marp: true
+theme: default
 paginate: true
 ---
 

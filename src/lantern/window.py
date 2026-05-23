@@ -5,8 +5,8 @@
 - LanternWindow: the Adw.ApplicationWindow.  Owns the Document, the
   MarpServer, the Editor and Preview, and wires the three together.
 - action_new_file / action_open_file / load_file: file lifecycle.
-- action_export: opens a save dialog and runs marp in a worker thread to
-  produce HTML, PDF, or PPTX.  PDF/PPTX go through chrome-headless-shell.
+- action_export: opens a save dialog, then hands off to lantern.export to
+  produce HTML (marp), PDF (WebKit print), or PPTX (pandoc).
 - action_present_toggle: enters/exits present mode.  windowed=True gives
   a borderless floating window (Zoom-friendly); windowed=False fullscreens.
 - _autosave: debounced write-back so marp's live-reload picks changes up
@@ -20,13 +20,11 @@ Part of Lantern, released under the GNU General Public License v3 or later.
 
 import json
 import os
-import subprocess
-import threading
 from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from lantern import APP_ID, APP_NAME
+from lantern import APP_ID, APP_NAME, export
 from lantern.document import Document, default_template
 from lantern.editor import Editor
 from lantern.marp_server import MarpServer
@@ -34,10 +32,10 @@ from lantern.preview import Preview
 
 
 EXPORT_FORMATS = (
-    # (action suffix, label, file extension, marp flag, needs_chromium)
-    ("html", "HTML",                 "html", "--html", False),
-    ("pdf",  "PDF",                  "pdf",  "--pdf",  True),
-    ("pptx", "PowerPoint (.pptx)",   "pptx", "--pptx", True),
+    # (action suffix, menu label, file extension)
+    ("html", "HTML",               "html"),
+    ("pdf",  "PDF",                "pdf"),
+    ("pptx", "PowerPoint (.pptx)", "pptx"),
 )
 
 
@@ -209,7 +207,7 @@ class LanternWindow(Adw.ApplicationWindow):
         menu.append_section(None, file_section)
         view_section = Gio.Menu()
         export_menu = Gio.Menu()
-        for suffix, label, _ext, _flag, _needs_chrome in EXPORT_FORMATS:
+        for suffix, label, _ext in EXPORT_FORMATS:
             export_menu.append(label, f"win.export-{suffix}")
         view_section.append_submenu("Export…", export_menu)
         menu.append_section(None, view_section)
@@ -253,7 +251,7 @@ class LanternWindow(Adw.ApplicationWindow):
 
         # Export actions: one per format.  Disabled until a file is open.
         self._export_actions: list[Gio.SimpleAction] = []
-        for suffix, _label, _ext, _flag, _needs_chrome in EXPORT_FORMATS:
+        for suffix, _label, _ext in EXPORT_FORMATS:
             act = Gio.SimpleAction.new(f"export-{suffix}", None)
             # Default arg `s=suffix` captures the current value at lambda
             # creation time, dodging the classic late-binding trap.
@@ -351,7 +349,7 @@ class LanternWindow(Adw.ApplicationWindow):
         """Open a save dialog for the given format, then kick off export."""
         if self.document.path is None:
             return
-        _, label, ext, _flag, _needs = self._format_spec(suffix)
+        _, label, ext = self._format_spec(suffix)
         dlg = Gtk.FileDialog.new()
         dlg.set_title(f"Export as {label}")
         dlg.set_initial_name(f"{self.document.path.stem}.{ext}")
@@ -368,13 +366,13 @@ class LanternWindow(Adw.ApplicationWindow):
         if not f or self.document.path is None:
             return
         out_path = f.get_path()
-        _, label, ext, _flag, _needs = self._format_spec(suffix)
+        _, label, ext = self._format_spec(suffix)
         if not out_path.lower().endswith("." + ext):
             out_path += "." + ext
 
-        # Marp reads the source file from disk, so flush any unsaved
-        # edits before launching it.  Otherwise the export would lag a
-        # debounce cycle behind what the user sees on screen.
+        # The export engines read the source file from disk, so flush any
+        # unsaved edits first — otherwise the export would lag a debounce
+        # cycle behind what the user sees on screen.
         if self.document.is_dirty(self.editor.get_text()):
             try:
                 self.document.save(self.editor.get_text())
@@ -383,51 +381,17 @@ class LanternWindow(Adw.ApplicationWindow):
                 return
 
         self._toast(f"Exporting {label}…")
-        # marp can take seconds (PDF/PPTX spin up Chromium), so do the
-        # work on a worker thread and bridge results back to the main
-        # loop via GLib.idle_add — touching widgets from a thread is
-        # not safe.
-        threading.Thread(
-            target=self._run_export_worker,
-            args=(str(self.document.path), out_path, suffix),
-            daemon=True,
-        ).start()
+        export.run(suffix, str(self.document.path), out_path, self._on_export_done)
 
-    def _run_export_worker(self, input_path: str, output_path: str, suffix: str) -> None:
-        """Background-thread worker: run marp, report result via toast."""
-        marp_bin = MarpServer._find_marp_bin()
-        if not marp_bin:
-            GLib.idle_add(self._toast, "marp binary not found")
-            return
-        _, label, _ext, flag, needs_chrome = self._format_spec(suffix)
-        args = [marp_bin, "--allow-local-files", flag, input_path, "-o", output_path]
-        try:
-            proc = subprocess.run(
-                args,
-                capture_output=True,
-                text=True,
-                cwd=str(Path(input_path).parent),
-                timeout=180,
-            )
-        except subprocess.TimeoutExpired:
-            GLib.idle_add(self._toast, "Export timed out after 3 minutes", True)
-            return
-        except OSError as e:
-            GLib.idle_add(self._toast, f"Export failed: {e}", True)
-            return
+    def _on_export_done(self, ok: bool, message: str) -> bool:
+        """Report an export result. Invoked on the main loop by lantern.export.
 
-        if proc.returncode == 0 and Path(output_path).exists():
-            GLib.idle_add(self._toast, f"Exported {Path(output_path).name}")
-            return
-
-        # Surface the most useful line from marp's stderr so the toast
-        # tells the user what actually went wrong.
-        tail = (proc.stderr or "").strip().splitlines()
-        msg = tail[-1] if tail else f"marp exited {proc.returncode}"
-        if needs_chrome and any(k in msg.lower() for k in ("chrome", "browser", "puppeteer")):
-            msg = (f"{label} export needs a Chromium-based browser, which isn't "
-                   "bundled yet. See README.")
-        GLib.idle_add(self._toast, f"Export failed: {msg}", True)
+        Failure toasts are sticky so the reason doesn't vanish before the user
+        reads it. Returns False so the GLib idle source that may carry this
+        callback fires only once.
+        """
+        self._toast(message, sticky=not ok)
+        return False
 
     def _build_welcome(self) -> Gtk.Widget:
         page = Adw.StatusPage()

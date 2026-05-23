@@ -51,29 +51,6 @@ modules:
       - install -Dm755 /usr/lib/sdk/node22/bin/node /app/bin/node
 
       - ln -sf /app/share/lantern/node_modules/.bin/marp /app/bin/marp
-
-      # Headless Chromium for marp's PDF/PPTX render path.  We use
-      # chrome-headless-shell (the headless-only build puppeteer ships) via
-      # the @puppeteer/browsers CLI that puppeteer-core already brings in.
-      # Users who want a fully degoogled binary can override CHROME_PATH at
-      # runtime to point at their own ungoogled-chromium.
-      - cd /app/share/lantern && /usr/lib/sdk/node22/bin/node
-          node_modules/@puppeteer/browsers/lib/cjs/main-cli.js
-          install --path /app/share/lantern/chromium-cache
-          chrome-headless-shell@stable
-      # Wrap chrome-headless-shell so it always launches with --no-sandbox.
-      # Chromium's own sandbox cannot initialize inside flatpak's bwrap on
-      # Ubuntu 23.10+ (AppArmor blocks unprivileged user namespaces), and
-      # the flatpak sandbox is already isolating the process — Chromium's
-      # extra layer would be redundant even if it could start.
-      - |
-        CHROME_BIN=$(ls -1 /app/share/lantern/chromium-cache/chrome-headless-shell/linux-*/chrome-headless-shell-linux64/chrome-headless-shell | head -1)
-        echo "bundling chrome-headless-shell from: $CHROME_BIN"
-        cat > /app/bin/chrome-headless-shell <<EOF
-        #!/bin/sh
-        exec "$CHROME_BIN" --no-sandbox "\$@"
-        EOF
-        chmod 755 /app/bin/chrome-headless-shell
     sources:
       - type: inline
         dest-filename: package.json
@@ -84,6 +61,23 @@ modules:
             "version": "1.0.0",
             "description": "Bundled marp-cli for Lantern."
           }
+
+  # pandoc powers PPTX export (Markdown -> native, editable .pptx).  Prebuilt
+  # static binaries exist for both arches, so the bundle stays multi-arch with
+  # no build step — just drop the right one in for the target.
+  - name: pandoc
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 bin/pandoc /app/bin/pandoc
+    sources:
+      - type: archive
+        only-arches: [x86_64]
+        url: https://github.com/jgm/pandoc/releases/download/3.9.0.2/pandoc-3.9.0.2-linux-amd64.tar.gz
+        sha256: a69abfababda8a56969a254b09f9553a7be89ddec00d4e0fe9fd585d71a67508
+      - type: archive
+        only-arches: [aarch64]
+        url: https://github.com/jgm/pandoc/releases/download/3.9.0.2/pandoc-3.9.0.2-linux-arm64.tar.gz
+        sha256: b6d21e8f9c3b15744f5a7ab40248019157ed7793875dbe0383d4c82ff572b528
 
   # Lantern itself — Python sources, launcher, desktop entry, metainfo, icon.
   - name: lantern

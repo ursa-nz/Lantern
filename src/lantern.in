@@ -11,11 +11,7 @@ set -e
 
 export PYTHONPATH="@SHAREDIR@${PYTHONPATH:+:${PYTHONPATH}}"
 
-# Headless Chromium for marp's PDF/PPTX render path. Honoured if the user
-# already exported CHROME_PATH (e.g. to swap in ungoogled-chromium); only
-# fall back to the bundled chrome-headless-shell when present.
-if [ -z "${CHROME_PATH:-}" ] && [ -x /app/bin/chrome-headless-shell ]; then
-    export CHROME_PATH=/app/bin/chrome-headless-shell
-fi
+# PDF export prints through WebKitGTK and PPTX goes through pandoc, so there's
+# no bundled Chromium to point at — see lantern/export.py.
 
 exec "@PYTHON@" -m lantern "$@"

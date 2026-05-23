@@ -11,23 +11,26 @@
 
   <description>
     <p>
-      Lantern is a calm Markdown slide authoring app for GNOME.  Write a deck
-      in plain Markdown, watch it render live in the same window, and let the
-      file on disk stay the source of truth.
+      Lantern is a small GUI for making Marp slide decks on GNOME. Edit on the
+      left. See the slide render on the right. Present from the same window.
     </p>
     <p>
-      Slides are powered by the Marp ecosystem, so anything you can express in
-      Marp Markdown — themes, directives, fragments — will render.  Lantern
-      handles the editor, the preview pane, and the file lifecycle so you can
-      keep your attention on the words.
+      It runs on Marp, so your Marp Markdown works as is. Themes, directives,
+      backgrounds, fragments. Lantern handles the editor, the live preview,
+      present mode, and export.
+    </p>
+    <p>
+      A deck saves as one .lantern file. The slides, images, and fonts stay
+      together. Rename it to .zip if you want to look inside.
     </p>
     <p>Features:</p>
     <ul>
-      <li>Side-by-side editor and live preview, or focus mode for either</li>
-      <li>Markdown syntax highlighting (GtkSourceView)</li>
-      <li>IBM Plex Mono typography out of the box</li>
-      <li>Automatic save while you type — no save button to remember</li>
-      <li>Follows the system light / dark preference</li>
+      <li>Editor and live preview side by side, or focus on one</li>
+      <li>Present full screen, or in a plain window for screen sharing</li>
+      <li>Export to PDF, PowerPoint, or HTML</li>
+      <li>One portable .lantern file holds the whole deck</li>
+      <li>Drop in images and fonts. Lantern writes the reference for you</li>
+      <li>Saves as you type. Follows the system light and dark setting</li>
     </ul>
   </description>
 
@@ -66,6 +69,20 @@
   </branding>
 
   <releases>
+    <release version="0.9.0" date="2026-05-23">
+      <description>
+        <p>
+          A big release. Decks now save as one file. Drop images and fonts
+          straight in. Export and present from the same window.
+        </p>
+        <ul>
+          <li>Save a whole deck as one .lantern file. Slides, images, and fonts together.</li>
+          <li>New Resources window. Drop in images and fonts. Insert them with a click.</li>
+          <li>Export to PDF and PowerPoint. No bundled browser.</li>
+          <li>Runs on Intel, AMD, and ARM machines.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-05-19">
       <description>
         <p>First cut: editor, preview, autosave, light/dark, layout toggle.</p>

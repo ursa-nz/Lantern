@@ -23,6 +23,11 @@ there, and Save re-zips. This module owns that pack/unpack/scaffold plumbing.
 - cleanup(work_dir): remove a working dir.
 - display_name(zip_path): the bundle name with the .lantern suffix stripped.
 
+Beyond that lifecycle, this module also owns the deck manifest (lantern.json
+metadata), typography (font roles -> a generated theme CSS), theme discovery
+and selection, and bundled image/font assets. Each lives in a labelled section
+below.
+
 Part of Lantern, released under the GNU General Public License v3 or later.
 """
 
@@ -452,8 +457,17 @@ def _font_data_uri(path) -> Optional[str]:
 # Assets — the resources manager copies images/fonts in and tracks usage.
 # ---------------------------------------------------------------------------
 def add_image(work_dir, src) -> str:
-    """Copy `src` into images/, de-duping the name; return the bundle path."""
-    return _add_asset(work_dir, src, IMAGES_DIR)
+    """Copy `src` into images/, de-duping the name and recording its add order;
+    return the bundle path."""
+    rel = _add_asset(work_dir, src, IMAGES_DIR)
+    meta = read_meta(work_dir)
+    order = meta.get("imageOrder")
+    order = order if isinstance(order, list) else []
+    if rel not in order:
+        order.append(rel)
+    meta["imageOrder"] = order
+    write_meta(work_dir, meta)
+    return rel
 
 
 def add_font(work_dir, src) -> str:
@@ -461,13 +475,27 @@ def add_font(work_dir, src) -> str:
     return _add_asset(work_dir, src, FONTS_DIR)
 
 
-def list_images(work_dir) -> list:
-    """Bundle-relative paths of the files in images/, sorted."""
-    return _list_dir(work_dir, IMAGES_DIR)
+def list_images(work_dir, order: str = "recent") -> list:
+    """Bundle-relative paths of the files in images/, in the requested order.
+
+    'recent' (newest added first) and 'oldest' follow the recorded add order
+    (lantern.json "imageOrder", which survives the .lantern round-trip exactly,
+    unlike file mtimes which the zip format only keeps to 2-second precision);
+    'name' sorts alphabetically. Files with no record (e.g. hand-added) are
+    treated as the most recent.
+    """
+    files = _list_dir(work_dir, IMAGES_DIR)   # current files, name-sorted
+    if order == "name":
+        return files
+    existing = set(files)
+    recorded = [r for r in read_meta(work_dir).get("imageOrder", [])
+                if isinstance(r, str) and r in existing]
+    add_order = recorded + [r for r in files if r not in set(recorded)]
+    return list(reversed(add_order)) if order == "recent" else add_order
 
 
 def list_fonts(work_dir) -> list:
-    """Bundle-relative paths of the files in styles/fonts/, sorted."""
+    """Bundle-relative paths of the files in styles/fonts/, sorted by name."""
     return _list_dir(work_dir, FONTS_DIR)
 
 
@@ -476,6 +504,13 @@ def delete_asset(work_dir, rel) -> None:
     p = Path(work_dir) / rel
     if p.is_file():
         p.unlink()
+    # Drop it from the recorded image order too (a no-op for fonts).
+    meta = read_meta(work_dir)
+    order = meta.get("imageOrder")
+    if isinstance(order, list) and rel in order:
+        order.remove(rel)
+        meta["imageOrder"] = order
+        write_meta(work_dir, meta)
 
 
 def count_references(deck_text: str, rel: str) -> int:

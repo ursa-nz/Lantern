@@ -1,19 +1,26 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2026 ursa.nz
-"""Resources window — manage a deck's bundled images and fonts.
+"""Resources window — a deck's theme, images, and fonts.
 
 A non-modal top-level window, so it floats free of the editor and stays open
-while you work. Two lists, Images and Fonts: add via the + buttons or by
-dropping files onto the window; each image inserts into the deck as an inline
-figure or a full-bleed background; deleting warns when the asset is still
-referenced.
+while you work. Three groups:
+- Theme: a base-theme picker (Marp builtins, curated themes Lantern ships, and
+  the bundle's own) plus an Edit CSS action that opens the theme in the user's
+  editor.
+- Images: add via the + button or by dropping files; insert through the
+  placement dialog (inline or background, sizing, filters); a sort control
+  orders them, newest added first by default. Deleting warns when the asset is
+  still referenced.
+- Fonts: add likewise, then assign one to a slide role (body/headings/mono).
 
 (GTK4/Wayland has no app-controlled always-on-top, so "floating" here means a
 separate non-modal window. GNOME's title-bar "Always on Top" pins it if wanted.)
 
-- ResourcesWindow: the window. refresh() rebuilds both lists from the bundle's
-  working dir; the window holds the live Document, so it always reflects the
-  currently open deck.
+- ResourcesWindow: the window. refresh() rebuilds the lists and picker from the
+  bundle's working dir; the window holds the live Document, so it always
+  reflects the currently open deck.
+- prompt_insert / _ImageDialog: the image placement form, shared by the Images
+  Insert button and the editor's drop-target.
 
 Part of Lantern, released under the GNU General Public License v3 or later.
 """
@@ -132,15 +139,16 @@ class ResourcesWindow(Adw.Window):
         edit_css.connect("activated", lambda _r: self._on_edit_css())
         self._theme.add(edit_css)
 
+        self._image_order = "recent"   # newest added first
         self._images = Adw.PreferencesGroup(title="Images")
-        self._images.set_header_suffix(self._add_button(self._on_add_image))
+        self._images.set_header_suffix(self._image_header_suffix())
         self._fonts = Adw.PreferencesGroup(title="Fonts")
         self._fonts.set_header_suffix(self._add_button(self._on_add_font))
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18,
                       margin_top=18, margin_bottom=18, margin_start=18, margin_end=18)
-        box.append(self._theme)
         box.append(self._images)
+        box.append(self._theme)
         box.append(self._fonts)
         scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
         scroller.set_child(box)
@@ -167,7 +175,7 @@ class ResourcesWindow(Adw.Window):
             return
         self._refresh_theme()
 
-        images = bundle.list_images(work_dir)
+        images = bundle.list_images(work_dir, self._image_order)
         if images:
             for rel in images:
                 row = Adw.ActionRow(title=GLib.markup_escape_text(_basename(rel)))
@@ -240,6 +248,41 @@ class ResourcesWindow(Adw.Window):
 
     def _on_add_font(self, _btn) -> None:
         self._pick("Add font", FONT_EXTS, bundle.add_font)
+
+    def _image_header_suffix(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.append(self._sort_button())
+        box.append(self._add_button(self._on_add_image))
+        return box
+
+    def _sort_button(self) -> Gtk.MenuButton:
+        btn = Gtk.MenuButton(icon_name="view-sort-descending-symbolic",
+                             valign=Gtk.Align.CENTER, tooltip_text="Sort images")
+        btn.add_css_class("flat")
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                        margin_top=10, margin_bottom=10, margin_start=12, margin_end=12)
+        group = None
+        for value, label in (("recent", "Newest first"),
+                             ("oldest", "Oldest first"),
+                             ("name", "Name")):
+            radio = Gtk.CheckButton(label=label)
+            if group is None:
+                group = radio
+            else:
+                radio.set_group(group)
+            radio.set_active(value == self._image_order)
+            radio.connect("toggled", self._on_sort_toggled, value)
+            inner.append(radio)
+        popover = Gtk.Popover()
+        popover.set_child(inner)
+        btn.set_popover(popover)
+        return btn
+
+    def _on_sort_toggled(self, radio, value) -> None:
+        # Grouped radios fire for both the off and on transitions; act on on.
+        if radio.get_active():
+            self._image_order = value
+            self._schedule_refresh()
 
     def _pick(self, title, exts, adder) -> None:
         if self._doc.work_dir is None:

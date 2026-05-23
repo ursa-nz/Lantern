@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A Lantern bundle is a zip, but we register a distinct type with the
+     two-part glob *.lantern.zip.  shared-mime-info prefers the longest
+     matching glob, so .lantern.zip resolves to this type rather than the
+     generic application/zip — Lantern is associated with its own bundles
+     only, never with every .zip on the system. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/vnd.lantern+zip">
+    <comment>Lantern presentation</comment>
+    <sub-class-of type="application/zip"/>
+    <!-- weight > 50 so the filename wins over application/zip's content magic;
+         a .lantern.zip is a zip by content, so without this it's detected as
+         plain application/zip and the glob never takes effect. -->
+    <glob pattern="*.lantern.zip" weight="60"/>
+    <icon name="nz.ursa.Lantern"/>
+  </mime-type>
+</mime-info>

@@ -8,6 +8,10 @@ Exec=@BINDIR@/lantern %F
 Icon=nz.ursa.Lantern
 Terminal=false
 Categories=GNOME;GTK;Office;Presentation;TextEditor;
+# We claim our own bundle type only — application/vnd.lantern+zip is matched
+# by the *.lantern.zip glob (see nz.ursa.Lantern.mime.xml), so this never
+# makes Lantern a handler for generic .zip files.
+MimeType=application/vnd.lantern+zip;
 # Deliberately NOT claiming MimeType=text/markdown so Lantern doesn't appear
 # as a system handler for .md files (and doesn't become the default by
 # attrition when it's the only registered handler).  Users who want it that

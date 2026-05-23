@@ -96,6 +96,9 @@ modules:
       - sed 's|@BINDIR@|/app/bin|g' data/nz.ursa.Lantern.desktop.in > nz.ursa.Lantern.desktop
       - install -Dm644 nz.ursa.Lantern.desktop /app/share/applications/nz.ursa.Lantern.desktop
 
+      # MIME type: associates *.lantern.zip (and only that) with Lantern.
+      - install -Dm644 data/nz.ursa.Lantern.mime.xml /app/share/mime/packages/nz.ursa.Lantern.xml
+
       # Metainfo
       - install -Dm644 data/nz.ursa.Lantern.metainfo.xml /app/share/metainfo/nz.ursa.Lantern.metainfo.xml
 

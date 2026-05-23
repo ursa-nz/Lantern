@@ -30,6 +30,7 @@
       <li>Export to PDF, PowerPoint, or HTML</li>
       <li>One portable .lantern file holds the whole deck</li>
       <li>Drop in images and fonts. Lantern writes the reference for you</li>
+      <li>Pick a theme or edit its CSS. Set fonts for the body, headings, and code</li>
       <li>Saves as you type. Follows the system light and dark setting</li>
     </ul>
   </description>
@@ -69,6 +70,23 @@
   </branding>
 
   <releases>
+    <release version="1.0.0" date="2026-05-23">
+      <description>
+        <p>
+          Lantern 1.0. This release is about style: choose a theme, edit its
+          CSS, and place images with real control. The rest is polish that
+          added up along the way.
+        </p>
+        <ul>
+          <li>Choose a theme: a Marp built-in, one Lantern ships (Ink or Dusk), or your own.</li>
+          <li>Edit the theme CSS in your editor. Save, and the preview follows.</li>
+          <li>Place an image with options that matter: inline or background, size, split, and filters.</li>
+          <li>Set the body, heading, or monospace font from the deck's own fonts.</li>
+          <li>Title a deck, name its author, and reopen recent decks from the welcome screen.</li>
+          <li>See your newest images first, and sort the list when you need to.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-05-23">
       <description>
         <p>

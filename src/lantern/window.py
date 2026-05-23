@@ -14,8 +14,8 @@
 - _autosave: debounced write-back to the working dir's deck.md so marp's
   live-reload picks changes up; Save is what re-zips the bundle.
 
-State persisted to ~/.config/lantern/state.json across runs is limited to
-the last-used folder for file dialogs.
+State persisted to ~/.config/lantern/state.json across runs: the last-used
+folder for file dialogs, the recent-files list, and a default author name.
 
 Part of Lantern, released under the GNU General Public License v3 or later.
 """

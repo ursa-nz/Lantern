@@ -20,6 +20,6 @@ gi.require_version("Adw", "1")
 gi.require_version("GtkSource", "5")
 gi.require_version("WebKit", "6.0")
 
-__version__ = "0.9.0"
+__version__ = "1.0.0"
 APP_ID = "nz.ursa.Lantern"
 APP_NAME = "Lantern"

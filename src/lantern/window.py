@@ -4,13 +4,15 @@
 
 - LanternWindow: the Adw.ApplicationWindow.  Owns the Document, the
   MarpServer, the Editor and Preview, and wires the three together.
-- action_new_file / action_open_file / load_file: file lifecycle.
+- action_new_file / action_open_file / action_save / open_path: the
+  .lantern.zip lifecycle.  Opening a bundle unpacks it to a working dir;
+  opening a loose .md imports it; Save re-zips the working dir.
 - action_export: opens a save dialog, then hands off to lantern.export to
   produce HTML (marp), PDF (WebKit print), or PPTX (pandoc).
 - action_present_toggle: enters/exits present mode.  windowed=True gives
   a borderless floating window (Zoom-friendly); windowed=False fullscreens.
-- _autosave: debounced write-back so marp's live-reload picks changes up
-  without the user pressing save.
+- _autosave: debounced write-back to the working dir's deck.md so marp's
+  live-reload picks changes up; Save is what re-zips the bundle.
 
 State persisted to ~/.config/lantern/state.json across runs is limited to
 the last-used folder for file dialogs.
@@ -24,8 +26,8 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from lantern import APP_ID, APP_NAME, export
-from lantern.document import Document, default_template
+from lantern import APP_ID, APP_NAME, bundle, export
+from lantern.document import Document
 from lantern.editor import Editor
 from lantern.marp_server import MarpServer
 from lantern.preview import Preview
@@ -204,6 +206,7 @@ class LanternWindow(Adw.ApplicationWindow):
         file_section = Gio.Menu()
         file_section.append("New",       "app.new")
         file_section.append("Open…", "app.open")
+        file_section.append("Save",      "win.save")
         menu.append_section(None, file_section)
         view_section = Gio.Menu()
         export_menu = Gio.Menu()
@@ -227,9 +230,20 @@ class LanternWindow(Adw.ApplicationWindow):
     def _install_shortcuts(self) -> None:
         """Register window-scoped actions and keyboard shortcuts.
 
-        Present and export actions start disabled and are enabled once a
-        file is loaded — menu items grey out until then.
+        Save, present and export actions start disabled and are enabled
+        once a deck is loaded — menu items grey out until then.
         """
+        app = self.get_application()
+
+        # win.save — Ctrl+S re-zips the working dir into the .lantern.zip.
+        save_action = Gio.SimpleAction.new("save", None)
+        save_action.connect("activate", lambda *_: self.action_save())
+        save_action.set_enabled(False)
+        self.add_action(save_action)
+        self._save_action = save_action
+        if app:
+            app.set_accels_for_action("win.save", ["<primary>s"])
+
         # win.present — F5 toggles fullscreen present mode.
         action = Gio.SimpleAction.new("present", None)
         action.connect("activate", lambda *_: self.action_present_toggle(False))
@@ -245,11 +259,10 @@ class LanternWindow(Adw.ApplicationWindow):
         self.add_action(win_action)
         self._present_windowed_action = win_action
 
-        app = self.get_application()
         if app:
             app.set_accels_for_action("win.present", ["F5"])
 
-        # Export actions: one per format.  Disabled until a file is open.
+        # Export actions: one per format.  Disabled until a deck is open.
         self._export_actions: list[Gio.SimpleAction] = []
         for suffix, _label, _ext in EXPORT_FORMATS:
             act = Gio.SimpleAction.new(f"export-{suffix}", None)
@@ -285,8 +298,8 @@ class LanternWindow(Adw.ApplicationWindow):
         Hides the headerbar, forces preview-only, and either fullscreens
         or removes WM decorations depending on `windowed`.
         """
-        if self.document.path is None:
-            self._toast("Open a file before presenting.")
+        if self.document.deck_path is None:
+            self._toast("Open a deck before presenting.")
             return
         self._pre_present_layout = self._layout
         self._pre_present_decorated = self.get_decorated()
@@ -347,14 +360,15 @@ class LanternWindow(Adw.ApplicationWindow):
 
     def action_export(self, suffix: str) -> None:
         """Open a save dialog for the given format, then kick off export."""
-        if self.document.path is None:
+        if self.document.deck_path is None:
             return
         _, label, ext = self._format_spec(suffix)
         dlg = Gtk.FileDialog.new()
         dlg.set_title(f"Export as {label}")
-        dlg.set_initial_name(f"{self.document.path.stem}.{ext}")
-        if self.document.path.parent.is_dir():
-            dlg.set_initial_folder(Gio.File.new_for_path(str(self.document.path.parent)))
+        dlg.set_initial_name(f"{self.document.title}.{ext}")
+        folder = self._save_folder()
+        if folder:
+            dlg.set_initial_folder(folder)
         dlg.save(self, None, lambda d, r: self._on_export_dest_chosen(d, r, suffix))
 
     def _on_export_dest_chosen(self, dlg, res, suffix: str) -> None:
@@ -363,25 +377,24 @@ class LanternWindow(Adw.ApplicationWindow):
         except GLib.Error:
             # User dismissed the dialog; nothing to do.
             return
-        if not f or self.document.path is None:
+        if not f or self.document.deck_path is None:
             return
         out_path = f.get_path()
         _, label, ext = self._format_spec(suffix)
         if not out_path.lower().endswith("." + ext):
             out_path += "." + ext
 
-        # The export engines read the source file from disk, so flush any
-        # unsaved edits first — otherwise the export would lag a debounce
-        # cycle behind what the user sees on screen.
-        if self.document.is_dirty(self.editor.get_text()):
-            try:
-                self.document.save(self.editor.get_text())
-            except OSError as e:
-                self._toast(f"Couldn't save before export: {e}")
-                return
+        # The export engines read deck.md from the working dir, so flush the
+        # latest editor text there first — otherwise the export would lag a
+        # debounce cycle behind what the user sees on screen.
+        try:
+            self.document.write_working(self.editor.get_text())
+        except OSError as e:
+            self._toast(f"Couldn't flush before export: {e}", sticky=True)
+            return
 
         self._toast(f"Exporting {label}…")
-        export.run(suffix, str(self.document.path), out_path, self._on_export_done)
+        export.run(suffix, str(self.document.deck_path), out_path, self._on_export_done)
 
     def _on_export_done(self, ok: bool, message: str) -> bool:
         """Report an export result. Invoked on the main loop by lantern.export.
@@ -404,7 +417,7 @@ class LanternWindow(Adw.ApplicationWindow):
         new_btn.add_css_class("suggested-action")
         new_btn.connect("clicked", lambda *_: self.action_new_file())
 
-        open_btn = Gtk.Button(label="Open file…")
+        open_btn = Gtk.Button(label="Open…")
         open_btn.add_css_class("pill")
         open_btn.connect("clicked", lambda *_: self.action_open_file())
 
@@ -437,18 +450,31 @@ class LanternWindow(Adw.ApplicationWindow):
     # ------------------------------------------------------------------
     # File actions
     # ------------------------------------------------------------------
-    def _markdown_filters(self) -> Gio.ListStore:
-        """A single FileFilter that matches *.md and *.markdown."""
+    def _bundle_filter(self) -> Gio.ListStore:
+        """A FileFilter matching *.lantern.zip (for New / Save As)."""
         filt = Gtk.FileFilter()
-        filt.set_name("Markdown")
-        for pat in ("*.md", "*.markdown"):
-            filt.add_pattern(pat)
+        filt.set_name("Lantern presentation")
+        filt.add_pattern("*.lantern.zip")
         store = Gio.ListStore.new(Gtk.FileFilter)
         store.append(filt)
         return store
 
+    def _open_filters(self) -> Gio.ListStore:
+        """Filters for Open: Lantern bundles, plus loose Markdown to import."""
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        bundle_f = Gtk.FileFilter()
+        bundle_f.set_name("Lantern presentation")
+        bundle_f.add_pattern("*.lantern.zip")
+        md_f = Gtk.FileFilter()
+        md_f.set_name("Markdown (import)")
+        md_f.add_pattern("*.md")
+        md_f.add_pattern("*.markdown")
+        store.append(bundle_f)
+        store.append(md_f)
+        return store
+
     def _initial_folder(self) -> Gio.File | None:
-        """Where to start the file dialog: last-used folder, then ~/Documents."""
+        """Where to start a fresh dialog: last-used folder, then ~/Documents."""
         last = self._state.get("last_folder")
         if last and os.path.isdir(last):
             return Gio.File.new_for_path(last)
@@ -457,11 +483,17 @@ class LanternWindow(Adw.ApplicationWindow):
             return Gio.File.new_for_path(str(default))
         return None
 
+    def _save_folder(self) -> Gio.File | None:
+        """Folder to default save/export dialogs to: the bundle's dir if saved."""
+        if self.document.bundle_path and self.document.bundle_path.parent.is_dir():
+            return Gio.File.new_for_path(str(self.document.bundle_path.parent))
+        return self._initial_folder()
+
     def action_new_file(self) -> None:
         dlg = Gtk.FileDialog.new()
         dlg.set_title("New presentation")
-        dlg.set_initial_name("presentation.md")
-        dlg.set_filters(self._markdown_filters())
+        dlg.set_initial_name("presentation.lantern.zip")
+        dlg.set_filters(self._bundle_filter())
         folder = self._initial_folder()
         if folder:
             dlg.set_initial_folder(folder)
@@ -475,22 +507,21 @@ class LanternWindow(Adw.ApplicationWindow):
         if not f:
             return
         path = f.get_path()
-        # File dialog doesn't auto-append the extension on every desktop;
-        # do it ourselves so the user reliably ends up with a .md file.
-        if not path.endswith((".md", ".markdown")):
-            path += ".md"
-        if not os.path.exists(path):
-            try:
-                Path(path).write_text(default_template(Path(path).stem), encoding="utf-8")
-            except OSError as e:
-                self._toast(f"Couldn't create file: {e}")
-                return
-        self.load_file(path)
+        if not path.endswith(bundle.SUFFIX):
+            path += bundle.SUFFIX
+        text = self.document.new(bundle.display_name(path))
+        try:
+            self.document.save(text, path=path)
+        except OSError as e:
+            self._toast(f"Couldn't create bundle: {e}", sticky=True)
+            return
+        self._remember_folder(path)
+        self._adopt_view(text)
 
     def action_open_file(self) -> None:
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Open presentation")
-        dlg.set_filters(self._markdown_filters())
+        dlg.set_filters(self._open_filters())
         folder = self._initial_folder()
         if folder:
             dlg.set_initial_folder(folder)
@@ -502,37 +533,92 @@ class LanternWindow(Adw.ApplicationWindow):
         except GLib.Error:
             return
         if f:
-            self.load_file(f.get_path())
+            self.open_path(f.get_path())
 
-    def load_file(self, path: str) -> None:
-        """Adopt `path` as the current document and start its preview."""
+    def open_path(self, path: str) -> None:
+        """Open a .lantern.zip bundle (unpack) or import a loose .md."""
+        p = str(path)
         try:
-            text = self.document.load(path)
-        except OSError as e:
-            self._toast(f"Couldn't open: {e}")
+            if p.endswith(bundle.SUFFIX):
+                text = self.document.open_bundle(p)
+            else:
+                # Anything else is treated as Markdown to import.
+                text = self.document.import_md(p)
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            self._toast(f"Couldn't open: {e}", sticky=True)
             return
+        if self.document.bundle_path:
+            self._remember_folder(self.document.bundle_path)
+        self._adopt_view(text)
+
+    def action_save(self) -> None:
+        """Save: re-zip into the current bundle, or prompt for one (Save As)."""
+        if self.document.deck_path is None:
+            return
+        if self.document.is_saved:
+            try:
+                self.document.save(self.editor.get_text())
+                self._toast("Saved")
+            except OSError as e:
+                self._toast(f"Save failed: {e}", sticky=True)
+        else:
+            self._save_as()
+
+    def _save_as(self) -> None:
+        dlg = Gtk.FileDialog.new()
+        dlg.set_title("Save presentation")
+        dlg.set_initial_name(f"{self.document.title}{bundle.SUFFIX}")
+        dlg.set_filters(self._bundle_filter())
+        folder = self._save_folder()
+        if folder:
+            dlg.set_initial_folder(folder)
+        dlg.save(self, None, self._on_save_as_chosen)
+
+    def _on_save_as_chosen(self, dlg, res) -> None:
+        try:
+            f = dlg.save_finish(res)
+        except GLib.Error:
+            return
+        if not f:
+            return
+        path = f.get_path()
+        if not path.endswith(bundle.SUFFIX):
+            path += bundle.SUFFIX
+        try:
+            self.document.save(self.editor.get_text(), path=path)
+            self._toast("Saved")
+            self._remember_folder(path)
+        except OSError as e:
+            self._toast(f"Save failed: {e}", sticky=True)
+
+    def _adopt_view(self, text: str) -> None:
+        """Show the just-loaded deck: editor text, preview, enable actions."""
         self.editor.set_text(text)
-        self._state["last_folder"] = str(self.document.path.parent)
-        _save_state(self._state)
-        self._start_preview(self.document.path)
+        self._start_preview(self.document.deck_path)
         self._content_stack.set_visible_child_name("doc")
-        # File-dependent actions become available now that we have a doc.
+        self._save_action.set_enabled(True)
         self._present_action.set_enabled(True)
         self._present_windowed_action.set_enabled(True)
         for act in self._export_actions:
             act.set_enabled(True)
 
+    def _remember_folder(self, path) -> None:
+        self._state["last_folder"] = str(Path(path).parent)
+        _save_state(self._state)
+
     # ------------------------------------------------------------------
     # Preview wiring
     # ------------------------------------------------------------------
-    def _start_preview(self, path: Path) -> None:
+    def _start_preview(self, deck_path: Path) -> None:
+        # marp --server watches the deck's directory; for a bundle that's the
+        # small working dir, so the server binds quickly.
         try:
-            self.marp.start_for_directory(path.parent)
+            self.marp.start_for_directory(deck_path.parent)
         except (RuntimeError, TimeoutError) as e:
             self._toast(str(e))
             self.preview.load_placeholder("Preview unavailable. Is marp installed?")
             return
-        self.preview.load_url(self.marp.url_for(path))
+        self.preview.load_url(self.marp.url_for(deck_path))
 
     # ------------------------------------------------------------------
     # Editor / autosave
@@ -546,19 +632,16 @@ class LanternWindow(Adw.ApplicationWindow):
         self._save_timeout = GLib.timeout_add(AUTOSAVE_DEBOUNCE_MS, self._autosave)
 
     def _autosave(self) -> bool:
-        # GLib timeouts fire on the main loop, so we're safe to touch
-        # the buffer here.  Returning SOURCE_REMOVE makes this a one-shot;
-        # the next keystroke arms a new timer via _on_editor_changed.
+        # Writes the editor text to the working dir's deck.md (cheap), which
+        # is what drives marp's live reload.  The .lantern.zip is only updated
+        # by an explicit Save.  One-shot: the next keystroke re-arms the timer.
         self._save_timeout = 0
-        if self.document.path is None:
-            return GLib.SOURCE_REMOVE
-        text = self.editor.get_text()
-        if not self.document.is_dirty(text):
+        if self.document.deck_path is None:
             return GLib.SOURCE_REMOVE
         try:
-            self.document.save(text)
+            self.document.write_working(self.editor.get_text())
         except OSError as e:
-            self._toast(f"Save failed: {e}")
+            self._toast(f"Autosave failed: {e}")
         return GLib.SOURCE_REMOVE
 
     # ------------------------------------------------------------------
@@ -608,18 +691,20 @@ class LanternWindow(Adw.ApplicationWindow):
     # Shutdown
     # ------------------------------------------------------------------
     def _on_close_request(self, *_) -> bool:
-        # Returning False lets the window close.  We use the chance to
-        # flush any pending autosave (the debounce timer might not have
-        # fired yet) and to shut down the marp subprocess cleanly.
+        # Returning False lets the window close.  Flush the working copy and,
+        # if the deck has a bundle on disk with unsaved changes, re-zip it so
+        # nothing is lost.  A never-saved deck has no bundle to write to, so
+        # its working dir is just dropped.  Then stop marp and clean up.
         if self._save_timeout:
             GLib.source_remove(self._save_timeout)
             self._save_timeout = 0
-        if self.document.path:
-            text = self.editor.get_text()
-            if self.document.is_dirty(text):
-                try:
-                    self.document.save(text)
-                except OSError:
-                    pass
+        text = self.editor.get_text()
+        try:
+            self.document.write_working(text)
+            if self.document.is_saved and self.document.is_dirty(text):
+                self.document.save(text)
+        except OSError:
+            pass
         self.marp.stop()
+        self.document.close()
         return False

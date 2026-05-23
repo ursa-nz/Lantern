@@ -65,16 +65,28 @@ The blocker for (1): Google ships **no Linux-ARM** `chrome-headless-shell`
   install + wrapper; added a `pandoc` module (3.9.0.2, per-arch tarballs via
   `only-arches`). Modules now: marp-cli, pandoc, lantern.
 - [x] `lantern.in`: dropped the `CHROME_PATH` block.
-- [ ] **Verify PPTX→pandoc** — needs a rebuilt flatpak (pandoc isn't in the
-  currently-installed bundle), so untested so far.
-- [ ] CI/distribution (its own sub-step): build aarch64 (QEMU on the x86
-  runner, or an ARM runner) and publish to a Flatpak **repo/OCI** — a
-  single-file `.flatpak` is one-arch only.
+- [x] PPTX→pandoc verified on a real install (basic deck).
+- [x] CI: aarch64 builds natively on GitHub's `ubuntu-24.04-arm` runner (free
+  for public repos — no QEMU); a matrix ships one bundle per arch and a
+  tags-only release job attaches both. (Forgejo can't cross-build: atutahi is
+  x86_64 with no aarch64 binfmt.)
 
-### Phase 2 — `.lantern.zip` container format
-- Open/save lifecycle (unpack temp → edit → re-zip on Save).
-- `deck.md` entry + in-bundle `.marprc.yml` (`themeSet`). Optional
-  `lantern.json` manifest (format version + entry) for future-proofing.
+### Phase 2 — `.lantern.zip` container format (DONE)
+- [x] `bundle.py`: pack/unpack/scaffold a working dir <-> .lantern.zip
+  (deck.md + `.marprc.yml` `themeSet: styles` + images/ + styles/), atomic
+  save, zip-slip guard.
+- [x] `Document` is working-dir-backed: New/Open(unpack)/Import(.md)/
+  write_working(autosave)/save(re-zip), two-snapshot dirty model (working
+  file vs last-zipped).
+- [x] `window.py`: New makes a .lantern.zip; Open unpacks bundles or imports a
+  loose .md; Save (Ctrl+S) re-zips / Save As; marp --server now watches the
+  small working dir, which kills the huge-parent-dir preview lag.
+- [x] File type: `application/vnd.lantern+zip`, glob `*.lantern.zip` at
+  `weight=60` (beats application/zip's content magic), sub-class-of zip;
+  desktop `MimeType` + mime XML + manifest install. Verified: double-click
+  opens Lantern.
+- Deferred: an optional `lantern.json` manifest (format version) — not needed
+  yet.
 
 ### Phase 3 — resources / typography manager
 - Two lists: **fonts** and **images**.

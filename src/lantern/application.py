@@ -52,7 +52,7 @@ class LanternApp(Adw.Application):
             win.present()
             path = f.get_path()
             if path:
-                win.load_file(path)
+                win.open_path(path)
 
     # ---------- actions ----------
     def _setup_actions(self) -> None:

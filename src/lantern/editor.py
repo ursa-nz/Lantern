@@ -85,6 +85,12 @@ class Editor(GObject.Object):
         end = self.buffer.get_end_iter()
         return self.buffer.get_text(start, end, False)
 
+    def insert_at_cursor(self, text: str) -> None:
+        """Insert `text` at the cursor. Fires 'changed', so the preview and
+        autosave pick it up like any other edit."""
+        self.buffer.insert_at_cursor(text)
+        self.view.grab_focus()
+
     def set_text(self, text: str) -> None:
         """Replace buffer contents without re-firing 'changed'.
 

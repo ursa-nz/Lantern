@@ -45,6 +45,11 @@ SUFFIX = ".lantern"
 MIME_TYPE = "application/vnd.lantern+zip"
 MIMETYPE_FILE = "mimetype"
 
+# Where assets live inside a bundle. Fonts sit under styles/ so a custom theme
+# CSS can @font-face them with a relative path that survives unzip.
+IMAGES_DIR = "images"
+FONTS_DIR = "styles/fonts"
+
 # marp-cli auto-loads a .marprc.* from the deck's directory, so pointing
 # themeSet at styles/ makes both the preview and a hand-unzip resolve the
 # bundle's custom themes the same way. (marp only warns when styles/ is empty.)
@@ -115,6 +120,68 @@ def pack(work_dir, zip_path) -> None:
 def cleanup(work_dir) -> None:
     """Remove a working directory (best effort)."""
     shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Assets — the resources manager copies images/fonts in and tracks usage.
+# ---------------------------------------------------------------------------
+def add_image(work_dir, src) -> str:
+    """Copy `src` into images/, de-duping the name; return the bundle path."""
+    return _add_asset(work_dir, src, IMAGES_DIR)
+
+
+def add_font(work_dir, src) -> str:
+    """Copy `src` into styles/fonts/, de-duping the name; return the bundle path."""
+    return _add_asset(work_dir, src, FONTS_DIR)
+
+
+def list_images(work_dir) -> list:
+    """Bundle-relative paths of the files in images/, sorted."""
+    return _list_dir(work_dir, IMAGES_DIR)
+
+
+def list_fonts(work_dir) -> list:
+    """Bundle-relative paths of the files in styles/fonts/, sorted."""
+    return _list_dir(work_dir, FONTS_DIR)
+
+
+def delete_asset(work_dir, rel) -> None:
+    """Remove a bundle-relative asset (no-op if it's missing)."""
+    p = Path(work_dir) / rel
+    if p.is_file():
+        p.unlink()
+
+
+def count_references(deck_text: str, rel: str) -> int:
+    """How many times the bundle-relative path appears in the deck text."""
+    return deck_text.count(rel)
+
+
+def _add_asset(work_dir, src, subdir) -> str:
+    src = Path(src)
+    dest_dir = Path(work_dir) / subdir
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    name = _dedupe_name(dest_dir, src.name)
+    shutil.copy2(src, dest_dir / name)
+    return f"{subdir}/{name}"
+
+
+def _list_dir(work_dir, subdir) -> list:
+    d = Path(work_dir) / subdir
+    if not d.is_dir():
+        return []
+    return sorted(f"{subdir}/{p.name}" for p in d.iterdir() if p.is_file())
+
+
+def _dedupe_name(dest_dir, name) -> str:
+    # photo.png -> photo-1.png -> photo-2.png when the name is already taken.
+    if not (dest_dir / name).exists():
+        return name
+    stem, ext = Path(name).stem, Path(name).suffix
+    i = 1
+    while (dest_dir / f"{stem}-{i}{ext}").exists():
+        i += 1
+    return f"{stem}-{i}{ext}"
 
 
 def display_name(zip_path) -> str:

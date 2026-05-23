@@ -93,12 +93,19 @@ The blocker for (1): Google ships **no Linux-ARM** `chrome-headless-shell`
 - Deferred: an optional `lantern.json` manifest (format version) — not needed
   yet.
 
-### Phase 3 — resources / typography manager
-- Two lists: **fonts** and **images**.
-- Drop/add → copy asset into the bundle + insert the marp reference at cursor.
-- Delete with usage tracking (scan markdown for `images/<name>`); de-dup on
-  name collision; bundle fonts referenced by custom themes (rewrite
-  `@font-face`/`@import` to relative for offline fidelity).
+### Phase 3 — resources / typography manager (DONE)
+- [x] `bundle.py` assets: add_image/add_font (copy into images/ or
+  styles/fonts/ with name de-dup), list_images/list_fonts, delete_asset,
+  count_references (usage scan).
+- [x] `resources.py`: a floating, non-modal `ResourcesWindow` (header toggle)
+  with Images + Fonts lists — add via + or drop onto the window; image rows
+  insert (inline vs background prompt) or delete (warns when still referenced).
+- [x] Editor drop-target: drop an image on the editor → bundle it → inline/bg
+  prompt → insert at cursor (`editor.insert_at_cursor`).
+- Deferred to **Phase 4** (post-0.9.0): a styles editor/selector — pick from
+  Marp builtins + curated styles we ship + the bundle's themes (sets the
+  `theme:` directive), and "edit CSS" opens the theme in the user's editor.
+  (The `@font-face`/`@import`-rewrite-on-import idea also lands with that.)
 
 ## Live experiment (PROVISIONAL — ground is shifting here)
 

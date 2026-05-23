@@ -26,7 +26,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from lantern import APP_ID, APP_NAME, bundle, export
+from lantern import APP_ID, APP_NAME, bundle, export, resources
 from lantern.document import Document
 from lantern.editor import Editor
 from lantern.marp_server import MarpServer
@@ -94,10 +94,12 @@ class LanternWindow(Adw.ApplicationWindow):
         self._state = _load_state()
         self._save_timeout = 0
         self._layout = LAYOUT_SPLIT
+        self._resources_win = None
 
         self._build_ui()
         self._install_shortcuts()
         self.editor.connect("changed", self._on_editor_changed)
+        self._install_editor_drop()
         self.connect("close-request", self._on_close_request)
         # Reset chrome if fullscreen is exited via the window manager
         # (e.g. user hits Super+Up) rather than our own Escape handler.
@@ -123,6 +125,12 @@ class LanternWindow(Adw.ApplicationWindow):
         self._header.pack_start(self._build_layout_toggle())
         self._header.pack_start(self._build_present_button())
         self._header.pack_end(self._build_menu_button())
+        # Resources: a toggle that shows the floating images/fonts window.
+        self._resources_btn = Gtk.ToggleButton(icon_name="image-x-generic-symbolic")
+        self._resources_btn.set_tooltip_text("Resources — images & fonts")
+        self._resources_btn.set_sensitive(False)
+        self._resources_btn.connect("toggled", self._on_resources_toggled)
+        self._header.pack_end(self._resources_btn)
 
         # Toast overlay wraps the content stack so toasts float over
         # whichever page is visible (welcome or doc).
@@ -599,12 +607,56 @@ class LanternWindow(Adw.ApplicationWindow):
         self._save_action.set_enabled(True)
         self._present_action.set_enabled(True)
         self._present_windowed_action.set_enabled(True)
+        self._resources_btn.set_sensitive(True)
         for act in self._export_actions:
             act.set_enabled(True)
+        if self._resources_win is not None:
+            self._resources_win.refresh()
 
     def _remember_folder(self, path) -> None:
         self._state["last_folder"] = str(Path(path).parent)
         _save_state(self._state)
+
+    # ------------------------------------------------------------------
+    # Resources (images & fonts)
+    # ------------------------------------------------------------------
+    def _on_resources_toggled(self, btn: Gtk.ToggleButton) -> None:
+        if btn.get_active():
+            self._resources_win = resources.ResourcesWindow(
+                self, self.document, self.editor.insert_at_cursor, self.editor.get_text)
+            self._resources_win.connect("close-request", self._on_resources_close)
+            self._resources_win.present()
+        elif self._resources_win is not None:
+            win, self._resources_win = self._resources_win, None
+            win.destroy()
+
+    def _on_resources_close(self, _win) -> bool:
+        # User closed the floating window directly; un-press the toggle.
+        self._resources_win = None
+        self._resources_btn.set_active(False)
+        return False
+
+    def _install_editor_drop(self) -> None:
+        # Drop an image onto the editor: bundle it, then ask inline vs
+        # background and insert the reference at the cursor.
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop.connect("drop", self._on_editor_drop)
+        self.editor.widget.add_controller(drop)
+
+    def _on_editor_drop(self, _target, value, _x, _y) -> bool:
+        if self.document.work_dir is None:
+            return False
+        added = False
+        for gf in value.get_files():
+            path = gf.get_path()
+            if not path or os.path.splitext(path)[1].lower() not in resources.IMAGE_EXTS:
+                continue
+            rel = bundle.add_image(self.document.work_dir, path)
+            resources.prompt_insert(self, rel, self.editor.insert_at_cursor)
+            added = True
+        if added and self._resources_win is not None:
+            self._resources_win.refresh()
+        return added
 
     # ------------------------------------------------------------------
     # Preview wiring
@@ -705,6 +757,8 @@ class LanternWindow(Adw.ApplicationWindow):
                 self.document.save(text)
         except OSError:
             pass
+        if self._resources_win is not None:
+            self._resources_win.destroy()
         self.marp.stop()
         self.document.close()
         return False

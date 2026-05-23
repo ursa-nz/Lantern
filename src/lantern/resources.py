@@ -104,12 +104,14 @@ class ResourcesWindow(Adw.Window):
     get_deck_text(): the live deck text, used to count references before delete.
     """
 
-    def __init__(self, parent, document, on_insert, get_deck_text) -> None:
+    def __init__(self, parent, document, on_insert, get_deck_text,
+                 on_assign_font) -> None:
         super().__init__(title="Resources", transient_for=parent, modal=False,
                          default_width=380, default_height=560)
         self._doc = document
         self._on_insert = on_insert
         self._get_deck_text = get_deck_text
+        self._on_assign_font = on_assign_font
         self._rows: list = []   # every row we've added, so refresh can clear them
 
         self._images = Adw.PreferencesGroup(title="Images")
@@ -161,15 +163,22 @@ class ResourcesWindow(Adw.Window):
 
         fonts = bundle.list_fonts(work_dir)
         if fonts:
+            roles_by_font: dict = {}   # rel -> [role, ...]
+            for role, frel in bundle.font_roles(work_dir).items():
+                roles_by_font.setdefault(frel, []).append(role)
             for rel in fonts:
+                assigned = roles_by_font.get(rel, [])
                 row = Adw.ActionRow(title=GLib.markup_escape_text(_basename(rel)))
+                if assigned:
+                    row.set_subtitle(", ".join(bundle.ROLE_LABELS[r] for r in assigned))
+                row.add_suffix(self._role_button(rel, set(assigned)))
                 row.add_suffix(self._icon_button(
                     "user-trash-symbolic", "Delete",
                     lambda _b, r=rel: self._delete(r), destructive=True))
                 self._add_row(self._fonts, row)
         else:
             self._add_row(self._fonts, self._placeholder(
-                "Fonts here are referenced from a custom theme's CSS."))
+                "Drop a font here, or use +. Then pick what it styles."))
 
     def _add_row(self, group, row) -> None:
         group.add(row)
@@ -222,8 +231,50 @@ class ResourcesWindow(Adw.Window):
         dlg.present(self)
 
     def _do_delete(self, rel) -> None:
+        work_dir = self._doc.work_dir
+        # Note the roles this font filled *before* removing it (font_roles drops
+        # missing files, so reading it after the delete would lose them).
+        affected = []
+        if work_dir is not None:
+            affected = [role for role, frel in bundle.font_roles(work_dir).items()
+                        if frel == rel]
         bundle.delete_asset(self._doc.work_dir, rel)
+        # Clear each role so the theme reverts to the default font and the
+        # re-save drops the now-removed file cleanly (no dangling reference).
+        for role in affected:
+            self._on_assign_font(role, None)
         self.refresh()
+
+    # ------------------------------------------------------------------
+    # Typography — assign a font to a slide role (body / headings / mono)
+    # ------------------------------------------------------------------
+    def _role_button(self, rel, assigned: set) -> Gtk.MenuButton:
+        btn = Gtk.MenuButton(label="Use for", valign=Gtk.Align.CENTER,
+                             tooltip_text="Use this font for part of the deck")
+        btn.add_css_class("flat")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                      margin_top=10, margin_bottom=10, margin_start=12, margin_end=12)
+        for role, label in bundle.ROLE_LABELS.items():
+            check = Gtk.CheckButton(label=label)
+            check.set_active(role in assigned)
+            check.connect("toggled", self._on_role_toggled, role, rel)
+            box.append(check)
+        popover = Gtk.Popover()
+        popover.set_child(box)
+        popover.connect("closed", lambda _p: self._schedule_refresh())
+        btn.set_popover(popover)
+        return btn
+
+    def _on_role_toggled(self, check, role, rel) -> None:
+        self._on_assign_font(role, rel if check.get_active() else None)
+
+    def _schedule_refresh(self) -> None:
+        # Defer: never rebuild the list from inside a child widget's own signal.
+        GLib.idle_add(self._refresh_once)
+
+    def _refresh_once(self) -> bool:
+        self.refresh()
+        return GLib.SOURCE_REMOVE
 
     # ------------------------------------------------------------------
     # Drop

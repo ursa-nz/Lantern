@@ -58,6 +58,7 @@ sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
 - Layout toggle in the header: editor / split / preview.
 - Drop an image onto the editor to add it. Lantern asks inline or background.
 - Resources button: a floating window for the deck's images and fonts.
+- In Resources, set a font as the body, heading, or monospace face. Lantern builds the theme and the preview updates live.
 - Properties sets the deck's title and author. Preferences holds your default author name.
 - Present in a window: borderless, keeps the current size (good for Zoom).
 - Present fullscreen with F5. Escape exits either present mode.
@@ -76,7 +77,7 @@ scripts/          install-local, uninstall-local, build-flatpak
 
 ## Status
 
-Open, new, edit, live preview, autosave, two present modes, export to HTML, PDF, and PPTX, `.lantern` bundles, drag in images and fonts, recent files, deck title and author. All working. Not built yet: a styles picker, PNG/JPEG export.
+Open, new, edit, live preview, autosave, two present modes, export to HTML, PDF, and PPTX, `.lantern` bundles, drag in images and fonts, recent files, deck title and author, fonts for body/headings/code. All working. Not built yet: a theme picker, PNG/JPEG export.
 
 ## License
 

@@ -758,7 +758,8 @@ class LanternWindow(Adw.ApplicationWindow):
     def _on_resources_toggled(self, btn: Gtk.ToggleButton) -> None:
         if btn.get_active():
             self._resources_win = resources.ResourcesWindow(
-                self, self.document, self.editor.insert_at_cursor, self.editor.get_text)
+                self, self.document, self.editor.insert_at_cursor, self.editor.get_text,
+                self._assign_font)
             self._resources_win.connect("close-request", self._on_resources_close)
             self._resources_win.present()
         elif self._resources_win is not None:
@@ -770,6 +771,31 @@ class LanternWindow(Adw.ApplicationWindow):
         self._resources_win = None
         self._resources_btn.set_active(False)
         return False
+
+    def _assign_font(self, role, rel) -> None:
+        """Assign (or clear) a bundled font for a slide role and refresh.
+
+        Regenerates the Lantern theme CSS, points the deck at it the first time
+        a font is used, flushes deck.md so marp re-renders, persists if the deck
+        is already saved, and reloads the preview so the change shows live.
+        """
+        wd = self.document.work_dir
+        if wd is None:
+            return
+        bundle.set_font_role(wd, role, rel)
+        if bundle.font_roles(wd):
+            text = self.editor.get_text()
+            themed = bundle.set_theme_directive(text, bundle.THEME_NAME)
+            if themed != text:
+                self.editor.set_text(themed)
+        try:
+            self.document.write_working(self.editor.get_text())
+        except OSError as e:
+            self._toast(f"Couldn't update the deck: {e}")
+            return
+        if self.document.is_saved:
+            self.action_save()
+        self.preview.reload()
 
     def _install_editor_drop(self) -> None:
         # Drop an image onto the editor: bundle it, then ask inline vs

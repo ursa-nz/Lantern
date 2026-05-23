@@ -1,0 +1,38 @@
+/* @theme ink */
+/* Ink — a light, editorial theme: serif body, sans headings, one red accent. */
+@import 'default';
+
+section {
+  background-color: #fdfdfb;
+  color: #1b1b1b;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: -apple-system, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: #111111;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  border-bottom: 3px solid #c2453d;
+  padding-bottom: 0.2em;
+}
+
+h2 {
+  color: #c2453d;
+}
+
+a {
+  color: #c2453d;
+}
+
+blockquote {
+  border-left: 4px solid #c2453d;
+  color: #555555;
+  font-style: italic;
+}
+
+section::after {
+  color: #aaaaaa;
+}

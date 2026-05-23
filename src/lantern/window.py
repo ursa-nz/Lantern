@@ -759,7 +759,7 @@ class LanternWindow(Adw.ApplicationWindow):
         if btn.get_active():
             self._resources_win = resources.ResourcesWindow(
                 self, self.document, self.editor.insert_at_cursor, self.editor.get_text,
-                self._assign_font)
+                self._assign_font, self._pick_theme)
             self._resources_win.connect("close-request", self._on_resources_close)
             self._resources_win.present()
         elif self._resources_win is not None:
@@ -773,21 +773,49 @@ class LanternWindow(Adw.ApplicationWindow):
         return False
 
     def _assign_font(self, role, rel) -> None:
-        """Assign (or clear) a bundled font for a slide role and refresh.
+        """Assign (or clear) a bundled font for a slide role, then reconcile.
 
-        Regenerates the Lantern theme CSS, points the deck at it the first time
-        a font is used, flushes deck.md so marp re-renders, persists if the deck
-        is already saved, and reloads the preview so the change shows live.
+        Regenerating the Lantern theme CSS happens in bundle.set_font_role;
+        _reconcile_theme then points the deck at the right theme and reloads.
         """
         wd = self.document.work_dir
         if wd is None:
             return
         bundle.set_font_role(wd, role, rel)
-        if bundle.font_roles(wd):
-            text = self.editor.get_text()
-            themed = bundle.set_theme_directive(text, bundle.THEME_NAME)
-            if themed != text:
-                self.editor.set_text(themed)
+        self._reconcile_theme()
+
+    def _pick_theme(self, descriptor: dict) -> None:
+        """Apply a base theme chosen in the Resources picker.
+
+        A curated theme is copied into the bundle's styles/ first so the deck
+        stays portable after a hand-unzip; builtins and the bundle's own themes
+        apply by name. Then record the base and reconcile the deck's directive.
+        """
+        wd = self.document.work_dir
+        if wd is None:
+            return
+        name = descriptor.get("name", "default")
+        if descriptor.get("kind") == "curated":
+            installed = bundle.install_curated_theme(wd, name)
+            if installed is None:
+                self._toast(f"Couldn't load the {name} theme.")
+                return
+            name = installed
+        bundle.set_base_theme(wd, name)
+        self._reconcile_theme()
+
+    def _reconcile_theme(self) -> None:
+        """Point the deck's `theme:` directive at the effective theme (the
+        managed lantern theme when fonts are assigned, else the base theme),
+        flush deck.md, persist if the deck is saved, and reload the preview.
+        """
+        wd = self.document.work_dir
+        if wd is None:
+            return
+        text = self.editor.get_text()
+        themed = bundle.set_theme_directive(text, bundle.effective_theme(wd))
+        if themed != text:
+            self.editor.set_text(themed)
         try:
             self.document.write_working(self.editor.get_text())
         except OSError as e:

@@ -105,14 +105,25 @@ class ResourcesWindow(Adw.Window):
     """
 
     def __init__(self, parent, document, on_insert, get_deck_text,
-                 on_assign_font) -> None:
+                 on_assign_font, on_pick_theme) -> None:
         super().__init__(title="Resources", transient_for=parent, modal=False,
                          default_width=380, default_height=560)
         self._doc = document
         self._on_insert = on_insert
         self._get_deck_text = get_deck_text
         self._on_assign_font = on_assign_font
+        self._on_pick_theme = on_pick_theme
         self._rows: list = []   # every row we've added, so refresh can clear them
+
+        # Theme: a base-theme dropdown. Selecting writes the deck's `theme:`
+        # directive (see window._pick_theme). _suppress_theme stops the
+        # programmatic selection refresh() makes from looping back as a pick.
+        self._theme = Adw.PreferencesGroup(title="Theme")
+        self._theme_descriptors: list = []
+        self._suppress_theme = False
+        self._theme_combo = Adw.ComboRow(title="Base theme")
+        self._theme_combo.connect("notify::selected", self._on_theme_selected)
+        self._theme.add(self._theme_combo)
 
         self._images = Adw.PreferencesGroup(title="Images")
         self._images.set_header_suffix(self._add_button(self._on_add_image))
@@ -121,6 +132,7 @@ class ResourcesWindow(Adw.Window):
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18,
                       margin_top=18, margin_bottom=18, margin_start=18, margin_end=18)
+        box.append(self._theme)
         box.append(self._images)
         box.append(self._fonts)
         scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
@@ -146,6 +158,7 @@ class ResourcesWindow(Adw.Window):
         work_dir = self._doc.work_dir
         if work_dir is None:
             return
+        self._refresh_theme()
 
         images = bundle.list_images(work_dir)
         if images:
@@ -183,6 +196,34 @@ class ResourcesWindow(Adw.Window):
     def _add_row(self, group, row) -> None:
         group.add(row)
         self._rows.append((group, row))
+
+    # ------------------------------------------------------------------
+    # Theme picker
+    # ------------------------------------------------------------------
+    def _refresh_theme(self) -> None:
+        wd = self._doc.work_dir
+        if wd is None:
+            return
+        self._theme_descriptors = bundle.available_themes(wd)
+        model = Gtk.StringList()
+        for d in self._theme_descriptors:
+            model.append(d["label"])
+        current = bundle.base_theme(wd)
+        index = next((i for i, d in enumerate(self._theme_descriptors)
+                      if d["name"] == current), 0)
+        # Setting the model resets selection to 0 and fires notify; bracket the
+        # whole update so neither that nor set_selected re-triggers a pick.
+        self._suppress_theme = True
+        self._theme_combo.set_model(model)
+        self._theme_combo.set_selected(index)
+        self._suppress_theme = False
+
+    def _on_theme_selected(self, combo, _param) -> None:
+        if self._suppress_theme:
+            return
+        idx = combo.get_selected()
+        if 0 <= idx < len(self._theme_descriptors):
+            self._on_pick_theme(self._theme_descriptors[idx])
 
     # ------------------------------------------------------------------
     # Add / insert / delete

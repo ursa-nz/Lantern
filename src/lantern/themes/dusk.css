@@ -1,0 +1,40 @@
+/* @theme dusk */
+/* Dusk — a dark theme with a cool blue accent. Code blocks stay on their
+   light default panel so syntax highlighting remains readable. */
+@import 'default';
+
+section {
+  background-color: #1d2025;
+  color: #e6e6e6;
+  font-family: -apple-system, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: #f4f4f4;
+}
+
+h1 {
+  border-bottom: 3px solid #4ea1d3;
+  padding-bottom: 0.2em;
+}
+
+h2 {
+  color: #4ea1d3;
+}
+
+a {
+  color: #6cb6e6;
+}
+
+strong {
+  color: #ffffff;
+}
+
+blockquote {
+  border-left: 4px solid #4ea1d3;
+  color: #b8c0c8;
+}
+
+section::after {
+  color: #7a828c;
+}

@@ -70,6 +70,20 @@
   </branding>
 
   <releases>
+    <release version="1.0.5" date="2026-05-24">
+      <description>
+        <p>
+          A round of fixes for longer sessions. Your work is safer on the way
+          out, your theme edits stay put, and the preview keeps up.
+        </p>
+        <ul>
+          <li>Close a deck with unsaved changes and Lantern asks first. Save, discard, or keep editing.</li>
+          <li>Edit a theme, switch to another, and switch back. Your changes are still there.</li>
+          <li>Drop several images at once and place them one at a time.</li>
+          <li>The live preview stays up through a long editing session.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-05-23">
       <description>
         <p>

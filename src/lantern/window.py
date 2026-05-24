@@ -93,6 +93,7 @@ class LanternWindow(Adw.ApplicationWindow):
         self.preview = Preview(on_reload=self._refresh_preview)
 
         self._state = _load_state()
+        self.editor.set_toolbar_visible(self._state.get("format_bar", True))
         self._save_timeout = 0
         self._layout = LAYOUT_SPLIT
         self._resources_win = None
@@ -795,6 +796,14 @@ class LanternWindow(Adw.ApplicationWindow):
         preview.add(self._sync_row)
         page.add(preview)
 
+        editor_group = Adw.PreferencesGroup(title="Editor")
+        self._format_bar_row = Adw.SwitchRow(
+            title="Show the formatting bar",
+            subtitle="Buttons for bold, headings, lists, and more")
+        self._format_bar_row.set_active(self._state.get("format_bar", True))
+        editor_group.add(self._format_bar_row)
+        page.add(editor_group)
+
         dlg.add(page)
         dlg.connect("closed", self._on_preferences_closed)
         dlg.present(self)
@@ -802,6 +811,8 @@ class LanternWindow(Adw.ApplicationWindow):
     def _on_preferences_closed(self, _dlg) -> None:
         self._state["author"] = self._author_row.get_text().strip()
         self._state["sync_slide"] = self._sync_row.get_active()
+        self._state["format_bar"] = self._format_bar_row.get_active()
+        self.editor.set_toolbar_visible(self._state["format_bar"])
         _save_state(self._state)
 
     def _show_properties(self) -> None:

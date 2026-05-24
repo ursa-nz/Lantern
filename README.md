@@ -1,4 +1,8 @@
-# Lantern
+<p align="center">
+  <img src="data/icons/hicolor/scalable/apps/nz.ursa.Lantern.svg" width="192" alt="Lantern">
+</p>
+
+<h1 align="center">Lantern</h1>
 
 A small GUI for authoring [Marp](https://marp.app/) slides on GNOME. Edit on the left, see the slide render on the right, present from the same window. The whole deck saves as one file.
 
@@ -79,7 +83,9 @@ scripts/          install-local, uninstall-local, build-flatpak
 
 ## Status
 
-Open, new, edit, live preview, autosave, two present modes, export to HTML, PDF, and PPTX, `.lantern` bundles, drag in images and fonts with a placement dialog, recent files, deck title and author, fonts for body/headings/code, a theme picker with editable CSS, and a preview that follows your cursor. All working. PNG and JPEG export is the one thing not built yet.
+It all works. Create a deck, open one, or import a `.md`. Edit with a live preview that follows your cursor, and autosave keeps it current. The whole deck saves as one `.lantern` file. Drag in images and fonts with a placement dialog. Pick a theme and edit its CSS. Set fonts for the body, headings, and code. Name a deck and reopen recent ones. Present in a window or full screen, and export to HTML, PDF, and PPTX.
+
+PNG and JPEG export is the one thing not built yet.
 
 ## Flathub
 

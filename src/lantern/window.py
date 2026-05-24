@@ -510,7 +510,8 @@ class LanternWindow(Adw.ApplicationWindow):
             self._recent_list.append(row)
 
     def _on_recent_activated(self, _listbox, row) -> None:
-        self.open_path(row._lantern_path)
+        path = row._lantern_path
+        self._guard_unsaved(lambda: self.open_path(path))
 
     def _build_doc(self) -> Gtk.Widget:
         # Paned is GTK's draggable two-pane container.  set_shrink_*=False
@@ -570,7 +571,41 @@ class LanternWindow(Adw.ApplicationWindow):
             return Gio.File.new_for_path(str(self.document.bundle_path.parent))
         return self._initial_folder()
 
+    def _guard_unsaved(self, proceed) -> None:
+        """Run proceed() once it's safe, prompting first if the open deck has
+        unsaved changes.
+
+        Only one deck is open at a time, so New, Open, and opening a recent
+        deck all replace the current one. Autosave keeps the working copy but
+        the .lantern is only re-zipped on Save, so without this a replace would
+        drop changes made since the last save.
+        """
+        if self.document.work_dir is None or not self.document.is_dirty(self.editor.get_text()):
+            proceed()
+            return
+        dlg = Adw.AlertDialog(
+            heading="Save changes?",
+            body=f"“{self.document.title}” has changes you haven't saved.")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("discard", "Discard")
+        dlg.add_response("save", "Save")
+        dlg.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("save")
+        dlg.set_close_response("cancel")
+
+        def on_response(_dlg, resp):
+            if resp == "save":
+                self.action_save(then=proceed)
+            elif resp == "discard":
+                proceed()
+        dlg.connect("response", on_response)
+        dlg.present(self)
+
     def action_new_file(self) -> None:
+        self._guard_unsaved(self._new_file_dialog)
+
+    def _new_file_dialog(self) -> None:
         dlg = Gtk.FileDialog.new()
         dlg.set_title("New presentation")
         dlg.set_initial_name("presentation.lantern")
@@ -601,6 +636,9 @@ class LanternWindow(Adw.ApplicationWindow):
         self._adopt_view(text)
 
     def action_open_file(self) -> None:
+        self._guard_unsaved(self._open_file_dialog)
+
+    def _open_file_dialog(self) -> None:
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Open presentation")
         dlg.set_filters(self._open_filters())
@@ -633,8 +671,12 @@ class LanternWindow(Adw.ApplicationWindow):
             self._remember_folder(self.document.bundle_path)
         self._adopt_view(text)
 
-    def action_save(self) -> None:
-        """Save: re-zip into the current bundle, or prompt for one (Save As)."""
+    def action_save(self, then=None) -> None:
+        """Re-zip into the current bundle, or prompt for one with Save As.
+
+        `then`, if given, runs after a successful save. It lets an action that
+        was waiting on the deck being saved carry on (see _guard_unsaved).
+        """
         if self.document.deck_path is None:
             return
         if self.document.is_saved:
@@ -644,10 +686,13 @@ class LanternWindow(Adw.ApplicationWindow):
                 self._toast("Saved")
             except OSError as e:
                 self._toast(f"Couldn't save. {e}", sticky=True)
+                return
+            if then:
+                then()
         else:
-            self._save_as()
+            self._save_as(then)
 
-    def _save_as(self) -> None:
+    def _save_as(self, then=None) -> None:
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Save presentation")
         dlg.set_initial_name(f"{self.document.title}{bundle.SUFFIX}")
@@ -655,9 +700,9 @@ class LanternWindow(Adw.ApplicationWindow):
         folder = self._save_folder()
         if folder:
             dlg.set_initial_folder(folder)
-        dlg.save(self, None, self._on_save_as_chosen)
+        dlg.save(self, None, lambda d, r: self._on_save_as_chosen(d, r, then))
 
-    def _on_save_as_chosen(self, dlg, res) -> None:
+    def _on_save_as_chosen(self, dlg, res, then=None) -> None:
         try:
             f = dlg.save_finish(res)
         except GLib.Error:
@@ -674,6 +719,9 @@ class LanternWindow(Adw.ApplicationWindow):
             self._remember_folder(path)
         except OSError as e:
             self._toast(f"Couldn't save. {e}", sticky=True)
+            return
+        if then:
+            then()
 
     def _adopt_view(self, text: str) -> None:
         """Show the just-loaded deck: editor text, preview, enable actions."""

@@ -36,7 +36,9 @@ class LanternApp(Adw.Application):
     # (no files) or do_open (one or more files passed in).
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
-        self._register_fonts()
+        # Bundled fonts need no registration here: the flatpak ships them under
+        # /app/share/fonts (already on fontconfig's path), and install-local.sh
+        # runs fc-cache for the local-dev case.
         self._load_css()
 
     def do_activate(self) -> None:
@@ -103,16 +105,7 @@ class LanternApp(Adw.Application):
             win.present()
         return win
 
-    # ---------- fonts + css ----------
-    def _register_fonts(self) -> None:
-        """Ensure bundled fonts are visible to fontconfig.
-
-        Flatpak: /app/share/fonts is already in fontconfig's path.
-        Local dev: ~/.local/share/fonts is on the standard XDG path; we trust
-        that install-local.sh ran fc-cache after copying the fonts.
-        """
-        return
-
+    # ---------- css ----------
     def _load_css(self) -> None:
         # .lantern-editor is applied to the GtkSource.View (a GtkTextView).
         # GtkTextView's text content is a child CSS node named `text`.

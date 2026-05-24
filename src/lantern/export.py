@@ -30,7 +30,7 @@ from pathlib import Path
 
 from gi.repository import GLib, Gtk, WebKit
 
-from lantern.marp_server import MarpServer
+from lantern.marp_server import find_marp_bin
 
 # marp puts its print page-break rules on the inner <section>, which lives
 # inside an <svg><foreignObject> and so never actually breaks. Force the break
@@ -84,7 +84,7 @@ def _report(on_done, ok: bool, message: str) -> None:
 
 
 def _export_html(md_path, out_path, on_done) -> None:
-    marp = MarpServer._find_marp_bin()
+    marp = find_marp_bin()
     if not marp:
         _report(on_done, False, "marp binary not found")
         return
@@ -146,7 +146,7 @@ def _find_pandoc() -> str | None:
 # ---------------------------------------------------------------------------
 def _export_pdf(md_path, out_path, on_done) -> None:
     def worker():
-        marp = MarpServer._find_marp_bin()
+        marp = find_marp_bin()
         if not marp:
             _report(on_done, False, "marp binary not found")
             return

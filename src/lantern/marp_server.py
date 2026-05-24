@@ -24,8 +24,30 @@ import os
 import shutil
 import socket
 import subprocess
+import threading
 import time
+from collections import deque
 from pathlib import Path
+
+
+def find_marp_bin() -> str | None:
+    """Locate a usable marp binary, preferring bundled over system.
+
+    The lookup chain: an explicit LANTERN_MARP_BIN override (handy for dev),
+    then the flatpak's /app/bin/marp, then a local-dev install, then whatever
+    is on PATH. Shared by the preview server and the exporters.
+    """
+    env_bin = os.environ.get("LANTERN_MARP_BIN")
+    if env_bin and os.path.isfile(env_bin) and os.access(env_bin, os.X_OK):
+        return env_bin
+    if os.path.isfile("/app/bin/marp"):
+        return "/app/bin/marp"
+    # Local dev install (install-local.sh drops it here).
+    local = Path.home() / ".local/share/lantern/node_modules/.bin/marp"
+    if local.is_file():
+        return str(local)
+    # Last resort: whatever's on PATH.
+    return shutil.which("marp")
 
 
 class MarpServer:
@@ -41,6 +63,10 @@ class MarpServer:
         self.process: subprocess.Popen | None = None
         self.port: int | None = None
         self.directory: str | None = None
+        # marp's stderr is drained on a daemon thread (see start_for_directory);
+        # the last few lines are kept here for a startup-failure diagnostic.
+        self._stderr_tail: deque = deque(maxlen=10)
+        self._stderr_thread: threading.Thread | None = None
 
     # ---------- lifecycle ----------
     def start_for_directory(self, directory) -> None:
@@ -55,7 +81,7 @@ class MarpServer:
             return
         self.stop()
 
-        marp_bin = self._find_marp_bin()
+        marp_bin = find_marp_bin()
         if not marp_bin:
             raise RuntimeError(
                 "marp binary not found. Run scripts/install-local.sh or the "
@@ -70,9 +96,11 @@ class MarpServer:
         # falls back to 8080, which collides if multiple windows are open.
         env["PORT"] = str(port)
 
-        # Capture stderr so we can surface the real reason if the server
-        # fails to come up within the timeout below.  stdout we don't
-        # care about — marp's chatter would just clutter our logs.
+        # marp logs to stderr (one "<deck> processed." line per render) and
+        # nothing to stdout. Left unread, the OS pipe buffer (~64KB) fills after
+        # a few thousand renders and marp blocks mid-render, wedging the live
+        # preview. So pipe stderr and drain it continuously on a daemon thread,
+        # keeping only the last few lines for a startup-failure diagnostic.
         self.process = subprocess.Popen(
             [marp_bin, "--server", directory],
             stdout=subprocess.DEVNULL,
@@ -86,20 +114,18 @@ class MarpServer:
             cwd=directory,
             text=True,
         )
+        self._stderr_tail = deque(maxlen=10)
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr, args=(self.process,), daemon=True)
+        self._stderr_thread.start()
         try:
             self._wait_for_port(port, timeout=15)
         except TimeoutError as e:
-            # Stop the (possibly stuck) process first so stderr.read()
-            # returns immediately instead of blocking on a live pipe.
-            proc = self.process
+            # Stop the (possibly stuck) process, then let the drain thread flush
+            # the final stderr lines on the EOF that follows and read its tail.
             self.stop()
-            tail = ""
-            if proc and proc.stderr:
-                try:
-                    lines = (proc.stderr.read() or "").strip().splitlines()
-                    tail = " | ".join(lines[-3:])
-                except (OSError, ValueError):
-                    tail = ""
+            self._stderr_thread.join(timeout=0.5)
+            tail = " | ".join(list(self._stderr_tail)[-3:])
             if tail:
                 raise TimeoutError(f"{e}. marp said {tail}") from None
             raise
@@ -134,6 +160,18 @@ class MarpServer:
         return f"http://localhost:{self.port}/{name}"
 
     # ---------- internals ----------
+    def _drain_stderr(self, proc) -> None:
+        # Consume marp's stderr line by line until the process exits, so its
+        # pipe never fills (see start_for_directory). Keep only the tail, in a
+        # bounded deque, for the startup diagnostic.
+        if not proc.stderr:
+            return
+        try:
+            for line in proc.stderr:
+                self._stderr_tail.append(line.rstrip("\n"))
+        except (OSError, ValueError):
+            pass
+
     def _alive(self) -> bool:
         # Popen.poll() returns None while the process is still running,
         # and the exit code once it's terminated.
@@ -148,23 +186,6 @@ class MarpServer:
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             return s.getsockname()[1]
-
-    @staticmethod
-    def _find_marp_bin() -> str | None:
-        """Locate a usable marp binary, preferring bundled over system."""
-        # 1. Explicit override — handy for dev / debugging.
-        env_bin = os.environ.get("LANTERN_MARP_BIN")
-        if env_bin and os.path.isfile(env_bin) and os.access(env_bin, os.X_OK):
-            return env_bin
-        # 2. Flatpak bundle layout.
-        if os.path.isfile("/app/bin/marp"):
-            return "/app/bin/marp"
-        # 3. Local dev install (install-local.sh drops it here).
-        local = Path.home() / ".local/share/lantern/node_modules/.bin/marp"
-        if local.is_file():
-            return str(local)
-        # 4. Last resort: whatever's on PATH.
-        return shutil.which("marp")
 
     @staticmethod
     def _wait_for_port(port: int, timeout: float) -> None:

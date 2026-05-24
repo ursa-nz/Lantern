@@ -437,12 +437,18 @@ class ResourcesWindow(Adw.Window):
         return row
 
 
-def prompt_insert(parent, rel, on_insert) -> None:
+def prompt_insert(parent, rel, on_insert, on_done=None) -> None:
     """Open the image-insert dialog, then hand the markdown to `on_insert`.
 
     Shared by the Resources list's Insert button and the editor's drop-target.
+    `on_done`, if given, is called when the dialog closes (whether the user
+    inserted or cancelled), so a caller can chain several drops one at a time
+    instead of stacking a dialog per file.
     """
-    _ImageDialog(rel, on_insert).present(parent)
+    dlg = _ImageDialog(rel, on_insert)
+    if on_done is not None:
+        dlg.connect("closed", lambda _d: on_done())
+    dlg.present(parent)
 
 
 class _ImageDialog(Adw.Dialog):

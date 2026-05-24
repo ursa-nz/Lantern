@@ -390,17 +390,23 @@ def list_curated_themes() -> list:
     return sorted(found, key=lambda t: t[0])
 
 
-def install_curated_theme(work_dir, name: str) -> Optional[str]:
+def install_curated_theme(work_dir, name: str, overwrite: bool = False) -> Optional[str]:
     """Copy the curated theme `name` into the bundle's styles/ so it travels
-    with the deck; return its theme name, or None when there's no such theme."""
+    with the deck; return its theme name, or None when there's no such theme.
+
+    An existing copy is kept by default, so re-picking a theme you have since
+    hand-edited (Edit CSS) preserves those edits rather than clobbering them.
+    Pass overwrite=True to force the shipped version back — what Reset does.
+    """
     for theme_name, path in list_curated_themes():
         if theme_name == name:
             dest = Path(work_dir) / "styles" / path.name
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            # write_bytes (not shutil.copy2) so the copy gets a current mtime
-            # and normal, writable permissions rather than inheriting the
-            # flatpak source file's zeroed timestamp and read-only mode.
-            dest.write_bytes(path.read_bytes())
+            if overwrite or not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                # write_bytes (not shutil.copy2) so the copy gets a current
+                # mtime and normal, writable permissions rather than inheriting
+                # the flatpak source file's zeroed timestamp and read-only mode.
+                dest.write_bytes(path.read_bytes())
             return theme_name
     return None
 
@@ -435,13 +441,18 @@ def save_user_theme(name: str, css: str) -> Optional[str]:
     return slug
 
 
-def install_user_theme(work_dir, name: str) -> Optional[str]:
-    """Copy the user preset `name` into the bundle's styles/; return its name."""
+def install_user_theme(work_dir, name: str, overwrite: bool = False) -> Optional[str]:
+    """Copy the user preset `name` into the bundle's styles/; return its name.
+
+    Like install_curated_theme, an existing copy is kept by default so edits
+    survive re-picking; overwrite=True forces the saved preset back.
+    """
     for theme_name, path in list_user_themes():
         if theme_name == name:
             dest = Path(work_dir) / "styles" / f"{theme_name}.css"
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(path.read_bytes())
+            if overwrite or not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(path.read_bytes())
             return theme_name
     return None
 

@@ -930,12 +930,13 @@ class LanternWindow(Adw.ApplicationWindow):
         def on_response(_dlg, resp):
             if resp != "reset":
                 return
-            bundle.install_curated_theme(wd, base)
+            bundle.install_curated_theme(wd, base, overwrite=True)
             bundle.generate_theme(wd)
             self._reconcile_theme()
             self._toast("Theme reset")
         dlg.connect("response", on_response)
-        dlg.present(self)
+        # Triggered from the Resources window, so anchor the dialog there.
+        dlg.present(self._resources_win or self)
 
     def _save_preset(self) -> None:
         """Save the current theme's CSS as a reusable preset."""
@@ -973,7 +974,8 @@ class LanternWindow(Adw.ApplicationWindow):
             if self._resources_win is not None:
                 self._resources_win.refresh()
         dlg.connect("response", on_response)
-        dlg.present(self)
+        # Triggered from the Resources window, so anchor the dialog there.
+        dlg.present(self._resources_win or self)
 
     def _reconcile_theme(self) -> None:
         """Point the deck's `theme:` directive at the effective theme (the
@@ -1063,16 +1065,26 @@ class LanternWindow(Adw.ApplicationWindow):
     def _handle_editor_files(self, files) -> None:
         if self.document.work_dir is None:
             return
-        added = False
+        rels = []
         for gf in files:
             path = gf.get_path()
             if not path or os.path.splitext(path)[1].lower() not in resources.IMAGE_EXTS:
                 continue
-            rel = bundle.add_image(self.document.work_dir, path)
-            resources.prompt_insert(self, rel, self.editor.insert_at_cursor)
-            added = True
-        if added and self._resources_win is not None:
+            rels.append(bundle.add_image(self.document.work_dir, path))
+        if not rels:
+            return
+        if self._resources_win is not None:
             self._resources_win.refresh()
+        # Present one placement dialog at a time: each opens the next when it
+        # closes, so dropping several images doesn't stack a pile of dialogs.
+        self._queue_image_prompts(rels)
+
+    def _queue_image_prompts(self, rels: list) -> None:
+        if not rels:
+            return
+        rel, rest = rels[0], rels[1:]
+        resources.prompt_insert(self, rel, self.editor.insert_at_cursor,
+                                on_done=lambda: self._queue_image_prompts(rest))
 
     # ------------------------------------------------------------------
     # Preview wiring
@@ -1196,20 +1208,34 @@ class LanternWindow(Adw.ApplicationWindow):
     # Shutdown
     # ------------------------------------------------------------------
     def _on_close_request(self, *_) -> bool:
-        # Returning False lets the window close.  Flush the working copy and,
-        # if the deck has a bundle on disk with unsaved changes, re-zip it so
-        # nothing is lost.  A never-saved deck has no bundle to write to, so
-        # its working dir is just dropped.  Then stop marp and clean up.
+        # Confirm before losing unsaved changes, the same way New and Open do.
+        # When the deck is dirty, hold the window open and let the prompt drive
+        # the save (or discard); otherwise there's nothing to lose, so close.
+        if self.document.work_dir is not None \
+                and self.document.is_dirty(self.editor.get_text()):
+            self._guard_unsaved(self._finish_close)
+            return True   # hold the window open until the prompt resolves
+        self._teardown()
+        return False
+
+    def _finish_close(self) -> None:
+        """Tear down and close for real, once the save prompt has resolved.
+
+        destroy() doesn't re-emit close-request, so this won't loop back into
+        the guard above.
+        """
+        self._teardown()
+        self.destroy()
+
+    def _teardown(self) -> None:
+        # Release everything the window holds: pending timers, the CSS watch,
+        # the Resources window, and the marp server, then drop the working dir.
+        # Persisting the deck is the save prompt's job (see _on_close_request),
+        # so nothing is written here. A deck reaching this point is clean, or
+        # has already been saved or explicitly discarded.
         if self._save_timeout:
             GLib.source_remove(self._save_timeout)
             self._save_timeout = 0
-        text = self.editor.get_text()
-        try:
-            self.document.write_working(text)
-            if self.document.is_saved and self.document.is_dirty(text):
-                self.document.save(text)
-        except OSError:
-            pass
         if self._css_reload_timeout:
             GLib.source_remove(self._css_reload_timeout)
             self._css_reload_timeout = 0
@@ -1223,4 +1249,3 @@ class LanternWindow(Adw.ApplicationWindow):
             self._resources_win.destroy()
         self.marp.stop()
         self.document.close()
-        return False

@@ -112,7 +112,8 @@ class ResourcesWindow(Adw.Window):
     """
 
     def __init__(self, parent, document, on_insert, get_deck_text,
-                 on_assign_font, on_pick_theme, on_edit_css) -> None:
+                 on_assign_font, on_pick_theme, on_edit_css,
+                 on_reset_theme, on_save_preset) -> None:
         super().__init__(title="Resources", transient_for=parent, modal=False,
                          default_width=380, default_height=560)
         self._doc = document
@@ -121,11 +122,14 @@ class ResourcesWindow(Adw.Window):
         self._on_assign_font = on_assign_font
         self._on_pick_theme = on_pick_theme
         self._on_edit_css = on_edit_css
+        self._on_reset_theme = on_reset_theme
+        self._on_save_preset = on_save_preset
         self._rows: list = []   # every row we've added, so refresh can clear them
 
-        # Theme: a base-theme dropdown plus an Edit CSS action. Selecting writes
-        # the deck's `theme:` directive (see window._pick_theme). _suppress_theme
-        # stops the programmatic selection refresh() makes from looping back.
+        # Theme: a base-theme dropdown plus Edit CSS, Reset, and Save as preset
+        # actions. Selecting writes the deck's `theme:` directive (see
+        # window._pick_theme). _suppress_theme stops the programmatic selection
+        # refresh() makes from looping back.
         self._theme = Adw.PreferencesGroup(title="Theme")
         self._theme_descriptors: list = []
         self._suppress_theme = False
@@ -138,6 +142,20 @@ class ResourcesWindow(Adw.Window):
         edit_css.add_suffix(Gtk.Image.new_from_icon_name("document-edit-symbolic"))
         edit_css.connect("activated", lambda _r: self._on_edit_css())
         self._theme.add(edit_css)
+        # Reset is only meaningful for a theme Lantern ships; _refresh_theme
+        # shows it only then.
+        self._reset_row = Adw.ActionRow(title="Reset theme",
+                                        subtitle="Undo your edits, back to the shipped version",
+                                        activatable=True)
+        self._reset_row.add_suffix(Gtk.Image.new_from_icon_name("edit-undo-symbolic"))
+        self._reset_row.connect("activated", lambda _r: self._on_reset_theme())
+        self._theme.add(self._reset_row)
+        save_preset = Adw.ActionRow(title="Save as preset",
+                                    subtitle="Reuse this theme in other decks",
+                                    activatable=True)
+        save_preset.add_suffix(Gtk.Image.new_from_icon_name("document-save-symbolic"))
+        save_preset.connect("activated", lambda _r: self._on_save_preset())
+        self._theme.add(save_preset)
 
         self._image_order = "recent"   # newest added first
         self._images = Adw.PreferencesGroup(title="Images")
@@ -232,6 +250,7 @@ class ResourcesWindow(Adw.Window):
         self._theme_combo.set_model(model)
         self._theme_combo.set_selected(index)
         self._suppress_theme = False
+        self._reset_row.set_visible(bundle.is_curated(current))
 
     def _on_theme_selected(self, combo, _param) -> None:
         if self._suppress_theme:
@@ -239,6 +258,9 @@ class ResourcesWindow(Adw.Window):
         idx = combo.get_selected()
         if 0 <= idx < len(self._theme_descriptors):
             self._on_pick_theme(self._theme_descriptors[idx])
+            # The new base may change whether Reset applies, so refresh (idle,
+            # never from inside the combo's own signal).
+            self._schedule_refresh()
 
     # ------------------------------------------------------------------
     # Add / insert / delete

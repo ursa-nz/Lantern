@@ -405,6 +405,65 @@ def install_curated_theme(work_dir, name: str) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# User theme presets — saved under the user's data dir, offered in the picker
+# for every deck. Picking one copies it into the bundle like a curated theme.
+# ---------------------------------------------------------------------------
+def _user_themes_dir() -> Path:
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base) / "lantern" / "themes"
+
+
+def list_user_themes() -> list:
+    """(name, path) for each preset the user has saved, sorted by name."""
+    d = _user_themes_dir()
+    if not d.is_dir():
+        return []
+    found = [(name, p) for p in sorted(d.glob("*.css")) if (name := _theme_name(p))]
+    return sorted(found, key=lambda t: t[0])
+
+
+def save_user_theme(name: str, css: str) -> Optional[str]:
+    """Save `css` as a reusable preset; return its slugged name, or None for an
+    empty name. The CSS header is rewritten to the slug so Marp registers it."""
+    slug = _slug(name)
+    if not slug:
+        return None
+    d = _user_themes_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{slug}.css").write_text(_with_theme_header(css, slug), encoding="utf-8")
+    return slug
+
+
+def install_user_theme(work_dir, name: str) -> Optional[str]:
+    """Copy the user preset `name` into the bundle's styles/; return its name."""
+    for theme_name, path in list_user_themes():
+        if theme_name == name:
+            dest = Path(work_dir) / "styles" / f"{theme_name}.css"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(path.read_bytes())
+            return theme_name
+    return None
+
+
+def is_curated(name: str) -> bool:
+    """Whether `name` is a theme Lantern ships, so its edits can be reset to
+    the shipped version."""
+    return any(n == name for n, _ in list_curated_themes())
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+
+
+def _with_theme_header(css: str, name: str) -> str:
+    """Return `css` with its `/* @theme ... */` header set to `name`."""
+    header = f"/* @theme {name} */"
+    if _THEME_HEADER_RE.search(css):
+        return _THEME_HEADER_RE.sub(header, css, count=1)
+    return f"{header}\n{css}"
+
+
 def list_bundle_themes(work_dir) -> list:
     """Theme names of custom CSS already in the bundle's styles/, excluding the
     managed lantern theme, sorted."""
@@ -420,9 +479,9 @@ def available_themes(work_dir) -> list:
     """Ordered, de-duplicated theme choices for the picker.
 
     Each entry is {name, label, kind} with kind 'builtin' | 'curated' |
-    'custom'. Marp builtins first, then curated themes Lantern ships, then any
-    other custom themes already in the bundle. A name appears once; a curated
-    theme already copied into the bundle stays labelled as curated.
+    'preset' | 'custom'. Marp builtins first, then curated themes Lantern
+    ships, then the user's saved presets, then any other custom themes already
+    in the bundle. A name appears once, keeping its first (higher) tier.
     """
     seen: set = set()
     out: list = []
@@ -436,6 +495,8 @@ def available_themes(work_dir) -> list:
         add(name, name.title(), "builtin")
     for name, _path in list_curated_themes():
         add(name, name.title(), "curated")
+    for name, _path in list_user_themes():
+        add(name, f"{name} (preset)", "preset")
     for name in list_bundle_themes(work_dir):
         add(name, f"{name} (in deck)", "custom")
     return out

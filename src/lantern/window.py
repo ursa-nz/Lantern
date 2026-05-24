@@ -860,7 +860,8 @@ class LanternWindow(Adw.ApplicationWindow):
         if btn.get_active():
             self._resources_win = resources.ResourcesWindow(
                 self, self.document, self.editor.insert_at_cursor, self.editor.get_text,
-                self._assign_font, self._pick_theme, self._edit_css)
+                self._assign_font, self._pick_theme, self._edit_css,
+                self._reset_theme, self._save_preset)
             self._resources_win.connect("close-request", self._on_resources_close)
             self._resources_win.present()
         elif self._resources_win is not None:
@@ -896,14 +897,83 @@ class LanternWindow(Adw.ApplicationWindow):
         if wd is None:
             return
         name = descriptor.get("name", "default")
-        if descriptor.get("kind") == "curated":
-            installed = bundle.install_curated_theme(wd, name)
-            if installed is None:
-                self._toast(f"Couldn't load the {name} theme.")
-                return
-            name = installed
+        kind = descriptor.get("kind")
+        # Curated and preset themes live outside the deck, so copy them in
+        # first; builtins and the bundle's own themes apply by name.
+        if kind == "curated":
+            name = bundle.install_curated_theme(wd, name)
+        elif kind == "preset":
+            name = bundle.install_user_theme(wd, name)
+        if name is None:
+            self._toast(f"Couldn't load the {descriptor.get('name')} theme.")
+            return
         bundle.set_base_theme(wd, name)
         self._reconcile_theme()
+
+    def _reset_theme(self) -> None:
+        """Reset a theme Lantern ships back to its shipped CSS, dropping edits."""
+        wd = self.document.work_dir
+        if wd is None:
+            return
+        base = bundle.base_theme(wd)
+        if not bundle.is_curated(base):
+            return
+        dlg = Adw.AlertDialog(
+            heading="Reset this theme?",
+            body=f"Your edits to the {base} theme will be replaced with the version Lantern ships.")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("reset", "Reset")
+        dlg.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+
+        def on_response(_dlg, resp):
+            if resp != "reset":
+                return
+            bundle.install_curated_theme(wd, base)
+            bundle.generate_theme(wd)
+            self._reconcile_theme()
+            self._toast("Theme reset")
+        dlg.connect("response", on_response)
+        dlg.present(self)
+
+    def _save_preset(self) -> None:
+        """Save the current theme's CSS as a reusable preset."""
+        wd = self.document.work_dir
+        if wd is None:
+            return
+        path = bundle.theme_css_path(wd, bundle.base_theme(wd))
+        if path is None:
+            self._toast("Pick or edit a theme before saving a preset.")
+            return
+        group = Adw.PreferencesGroup()
+        name_row = Adw.EntryRow(title="Preset name")
+        group.add(name_row)
+        dlg = Adw.AlertDialog(heading="Save theme as preset")
+        dlg.set_extra_child(group)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("save", "Save")
+        dlg.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("save")
+        dlg.set_close_response("cancel")
+
+        def on_response(_dlg, resp):
+            if resp != "save":
+                return
+            try:
+                css = path.read_text(encoding="utf-8")
+            except OSError as e:
+                self._toast(f"Couldn't read the theme. {e}")
+                return
+            slug = bundle.save_user_theme(name_row.get_text(), css)
+            if slug is None:
+                self._toast("Give the preset a name.")
+                return
+            self._toast(f"Saved the preset “{slug}”")
+            if self._resources_win is not None:
+                self._resources_win.refresh()
+        dlg.connect("response", on_response)
+        dlg.present(self)
 
     def _reconcile_theme(self) -> None:
         """Point the deck's `theme:` directive at the effective theme (the

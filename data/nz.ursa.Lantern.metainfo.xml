@@ -89,6 +89,11 @@
   </branding>
 
   <releases>
+    <release version="1.0.7" date="2026-06-08">
+      <description>
+        <p>A maintenance release. Screenshots are served from the ursa.nz software repository.</p>
+      </description>
+    </release>
     <release version="1.0.6" date="2026-06-07">
       <description>
         <p>

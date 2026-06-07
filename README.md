@@ -40,7 +40,7 @@ flatpak run nz.ursa.Lantern
 **Debian / Ubuntu** (`.deb`). One package installs on both Intel and ARM:
 
 ```
-sudo apt install ~/Downloads/lantern_1.0.6_all.deb
+sudo apt install ~/Downloads/lantern_1.0.7_all.deb
 ```
 
 apt pulls the GTK and WebKit it needs. PowerPoint export uses `pandoc`, a recommended dependency apt installs unless you opt out. Then launch Lantern from the app grid, or run `lantern`.
@@ -70,7 +70,7 @@ flatpak run nz.ursa.Lantern
 ```
 sudo apt install dpkg-dev nodejs npm
 ./scripts/build-deb.sh
-sudo apt install ./build/lantern_1.0.6_all.deb
+sudo apt install ./build/lantern_1.0.7_all.deb
 ```
 
 **AppImage (self-contained).** Bundles the whole GTK/WebKit/Python/Node stack, so it runs anywhere. Build it on the oldest distro you want to support — the releases use Ubuntu 24.04, the first with WebKitGTK 6.0.

@@ -1,0 +1,92 @@
+name: Build & Release AppImage
+
+# Builds the self-contained Lantern AppImage for x86_64 and aarch64 on native
+# runners (GitHub's free ARM runner handles aarch64 — no QEMU). The base is
+# Ubuntu 24.04, the oldest with webkitgtk-6.0, which sets the image's glibc
+# floor. On a pushed version tag (v1.2.3, etc.) the release job attaches both
+# AppImages; manual dispatch uploads workflow artifacts only.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write           # needed to create the release
+
+concurrency:
+  group: build-appimage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build AppImage (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm    # GitHub-hosted native ARM (free for public repos)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node (to fetch marp-cli at build time)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install the GTK/WebKit stack and packaging tools
+        # The gir1.2-* packages pull the matching runtime libs (libgtk-4-1,
+        # libadwaita-1-0, libgtksourceview-5-0, libwebkitgtk-6.0-4 + helpers).
+        # The *-bin packages provide gtk-update-icon-cache /
+        # gdk-pixbuf-query-loaders / glib-compile-schemas that the gtk plugin
+        # calls; librsvg2-common is the SVG pixbuf loader for the icon.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3 python3-gi \
+            gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gtksource-5 gir1.2-webkit-6.0 \
+            libglib2.0-bin libgtk-3-bin librsvg2-common \
+            pandoc desktop-file-utils file
+          sudo apt-get install -y libgdk-pixbuf2.0-bin \
+            || sudo apt-get install -y libgdk-pixbuf-2.0-bin
+
+      - name: Build AppImage
+        run: |
+          version=""
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then version="${GITHUB_REF_NAME#v}"; fi
+          ./scripts/build-appimage.sh "${version}"
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lantern-${{ matrix.arch }}.AppImage
+          path: build/Lantern-${{ matrix.arch }}.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Collect both AppImages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.AppImage
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          draft: false
+          prerelease: false

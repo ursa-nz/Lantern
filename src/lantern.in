@@ -11,6 +11,14 @@ set -e
 
 export PYTHONPATH="@SHAREDIR@${PYTHONPATH:+:${PYTHONPATH}}"
 
+# Point the app at the marp bundled beside the sources, when one is there.
+# Every packaged layout drops marp-cli at @SHAREDIR@/node_modules/.bin/marp
+# (the local install, the deb, the flatpak's /app/share), so a single guarded
+# export covers them all and find_marp_bin() picks it up first. Left unset when
+# absent, so a PATH-provided marp still resolves.
+_lantern_marp="@SHAREDIR@/node_modules/.bin/marp"
+[ -x "${_lantern_marp}" ] && export LANTERN_MARP_BIN="${_lantern_marp}"
+
 # PDF export prints through WebKitGTK and PPTX goes through pandoc, so there's
 # no bundled Chromium to point at — see lantern/export.py.
 

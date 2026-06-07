@@ -26,7 +26,9 @@ Sincere thanks to:
 
 ## Just want to run it
 
-Each tagged release ships a ready-to-install bundle. Grab `nz.ursa.Lantern.flatpak` from the [latest release](https://github.com/ursa-nz/Lantern/releases/latest), then:
+Each tagged release ships ready-to-install bundles on the [latest release](https://github.com/ursa-nz/Lantern/releases/latest). Pick whichever suits your system.
+
+**Flatpak** (most distros). Grab `nz.ursa.Lantern.flatpak`, then:
 
 ```
 flatpak install --user ~/Downloads/nz.ursa.Lantern.flatpak
@@ -34,6 +36,23 @@ flatpak run nz.ursa.Lantern
 ```
 
 (You need `flatpak` itself installed: `sudo apt install flatpak` on Debian/Ubuntu, similar for other distros.)
+
+**Debian / Ubuntu** (`.deb`). One package installs on both Intel and ARM:
+
+```
+sudo apt install ~/Downloads/lantern_1.0.5_all.deb
+```
+
+apt pulls the GTK and WebKit it needs. PowerPoint export uses `pandoc`, a recommended dependency apt installs unless you opt out. Then launch Lantern from the app grid, or run `lantern`.
+
+**AppImage** (any recent distro, nothing to install). Grab `Lantern-x86_64.AppImage` (or `-aarch64`):
+
+```
+chmod +x ~/Downloads/Lantern-x86_64.AppImage
+~/Downloads/Lantern-x86_64.AppImage
+```
+
+It carries its own GTK, WebKit, Python, Node, marp, and pandoc, so it runs on a machine that has none of them. It's built on Ubuntu 24.04, so it needs that vintage of glibc (2.39) or newer.
 
 ## Build it yourself
 
@@ -44,6 +63,25 @@ sudo apt install flatpak-builder
 ./scripts/build-flatpak.sh
 flatpak install --user build/nz.ursa.Lantern.flatpak
 flatpak run nz.ursa.Lantern
+```
+
+**Debian package (`.deb`).** Architecture-independent — the one package installs on amd64 and arm64.
+
+```
+sudo apt install dpkg-dev nodejs npm
+./scripts/build-deb.sh
+sudo apt install ./build/lantern_1.0.5_all.deb
+```
+
+**AppImage (self-contained).** Bundles the whole GTK/WebKit/Python/Node stack, so it runs anywhere. Build it on the oldest distro you want to support — the releases use Ubuntu 24.04, the first with WebKitGTK 6.0.
+
+```
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
+                 gir1.2-gtksource-5 gir1.2-webkit-6.0 \
+                 libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin \
+                 librsvg2-common nodejs npm pandoc
+./scripts/build-appimage.sh
+./build/Lantern-x86_64.AppImage
 ```
 
 **Local install (for hacking on the Python).** PDF and HTML export work. PPTX needs `pandoc` on your PATH.
@@ -78,7 +116,7 @@ src/lantern/      Python GTK app
 src/lantern.in    Launcher template
 data/             Desktop entry, AppStream metainfo, icon
 flatpak/          flatpak-builder manifest
-scripts/          install-local, uninstall-local, build-flatpak
+scripts/          install-local, build-flatpak, build-deb, build-appimage, stage-app
 ```
 
 ## Status

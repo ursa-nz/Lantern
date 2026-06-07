@@ -1,0 +1,78 @@
+name: Build & Release deb
+
+# Forgejo Actions port of .github/workflows/build-deb.yml. Forgejo reads
+# .forgejo/workflows/ and GitHub reads .github/, so the two forges coexist:
+# pushing the same commit builds on both. The .deb is Architecture: all, so a
+# single x86_64 build serves amd64 and arm64.
+#
+# On a pushed version tag this builds the package and creates a Forgejo release
+# with the .deb attached. Manual dispatch uploads a workflow artifact only.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write           # needed to create the release
+
+concurrency:
+  group: build-deb-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build deb package
+    runs-on: ubuntu-latest
+    # catthehacker's act image is Ubuntu 24.04 with node + apt; we run as root,
+    # so no sudo. dpkg-dev provides dpkg-deb.
+    container:
+      image: catthehacker/ubuntu:act-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node (to fetch marp-cli at build time)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dpkg tooling
+        run: |
+          apt-get update
+          apt-get install -y dpkg-dev
+
+      - name: Build deb
+        run: |
+          version=""
+          case "${GITHUB_REF}" in refs/tags/v*) version="${GITHUB_REF_NAME#v}" ;; esac
+          ./scripts/build-deb.sh "${version}"
+
+      - name: Upload as workflow artifact
+        # Forgejo's runner doesn't support the v2 artifact backend that
+        # upload-artifact@v4 needs (it reports as GHES); v3 uses the older
+        # protocol that works here.
+        uses: actions/upload-artifact@v3
+        with:
+          name: lantern-deb
+          path: build/*.deb
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stage release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p dist
+          cp build/*.deb dist/
+
+      - name: Create Forgejo release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: https://code.forgejo.org/actions/forgejo-release@v2
+        with:
+          direction: upload
+          url: ${{ github.server_url }}
+          repo: ${{ github.repository }}
+          tag: ${{ github.ref_name }}
+          release-dir: dist
+          token: ${{ secrets.GITHUB_TOKEN }}

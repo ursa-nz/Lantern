@@ -70,6 +70,17 @@
   </branding>
 
   <releases>
+    <release version="1.0.6" date="2026-06-07">
+      <description>
+        <p>
+          New ways to install Lantern.
+        </p>
+        <ul>
+          <li>Download Lantern as a .deb package for Debian and Ubuntu.</li>
+          <li>Or grab the AppImage and run it anywhere, no install needed.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.5" date="2026-05-24">
       <description>
         <p>

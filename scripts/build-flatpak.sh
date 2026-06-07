@@ -78,8 +78,6 @@ flatpak-builder \
     --install-deps-from=flathub \
     --state-dir="${WORK_ROOT}/.flatpak-builder" \
     --repo="${REPO_DIR}" \
-    --mirror-screenshots-url=https://software.ursa.nz/flatpak/media \
-    --compose-url-policy=full \
     "${rofiles_args[@]}" \
     "${BUILD_DIR}" \
     "${MANIFEST_ABS}"

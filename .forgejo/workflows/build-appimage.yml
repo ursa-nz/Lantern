@@ -44,11 +44,13 @@ jobs:
         # libgtksourceview-5-0, libwebkitgtk-6.0-4 + helpers). The *-bin packages
         # provide the gtk-update-icon-cache / gdk-pixbuf-query-loaders /
         # glib-compile-schemas tools the gtk plugin calls; librsvg2-common is the
-        # SVG pixbuf loader for the icon. Run as root — no sudo.
+        # SVG pixbuf loader for the icon. The gtk plugin resolves the GTK module
+        # dir via `pkg-config gtk4`, so it needs gtk4.pc from libgtk-4-dev. Run
+        # as root — no sudo.
         run: |
           apt-get update
           apt-get install -y \
-            python3 python3-gi \
+            python3 python3-gi pkg-config libgtk-4-dev \
             gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gtksource-5 gir1.2-webkit-6.0 \
             libglib2.0-bin libgtk-3-bin librsvg2-common \
             pandoc desktop-file-utils file

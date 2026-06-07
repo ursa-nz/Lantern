@@ -67,6 +67,10 @@ fi
 for t in python3 npm gtk-update-icon-cache gdk-pixbuf-query-loaders glib-compile-schemas; do
     have "$t" || err "missing build tool: $t (install the GTK dev/runtime utilities)"
 done
+# The gtk plugin resolves the GTK 4 module dir via `pkg-config gtk4` and aborts
+# without gtk4.pc; check it up front so the failure is obvious (and early).
+have pkg-config || err "pkg-config missing. Install: sudo apt install pkg-config"
+pkg-config --exists gtk4 || err "gtk4.pc not found. Install: sudo apt install libgtk-4-dev"
 
 # ---------- Tools (linuxdeploy + gtk plugin + appimagetool) ----------
 TOOLS="${HOME}/.cache/lantern-appimage/tools"

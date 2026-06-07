@@ -35,6 +35,25 @@
     </ul>
   </description>
 
+  <screenshots>
+    <screenshot type="default">
+      <caption>Edit Markdown on the left, watch the slide render on the right</caption>
+      <image type="source" width="2500" height="1620">https://forge.ursa.nz/ursa-nz/Lantern/raw/branch/main/data/screenshots/editor-preview.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Start a new presentation or open an existing deck</caption>
+      <image type="source" width="2500" height="1620">https://forge.ursa.nz/ursa-nz/Lantern/raw/branch/main/data/screenshots/welcome.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Pick a theme, edit its CSS, and add images and fonts in Resources</caption>
+      <image type="source" width="860" height="1220">https://forge.ursa.nz/ursa-nz/Lantern/raw/branch/main/data/screenshots/resources.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Set a default author name and tune the preview in Preferences</caption>
+      <image type="source" width="2500" height="1620">https://forge.ursa.nz/ursa-nz/Lantern/raw/branch/main/data/screenshots/preferences.png</image>
+    </screenshot>
+  </screenshots>
+
   <launchable type="desktop-id">nz.ursa.Lantern.desktop</launchable>
 
   <categories>

@@ -49,7 +49,18 @@ jobs:
           key: flatpak-runtime-${{ matrix.arch }}-gnome49-node22-v1
 
       - name: Build bundle
-        run: ./scripts/build-flatpak.sh
+        # Like the AppImage, this pulls the GNOME runtime/SDK from Flathub and
+        # runs a heavy build, so a transient network/runner hiccup can sink an
+        # otherwise-good build. Retry a few times — the script --force-cleans its
+        # build dir on each run, so a retry starts clean.
+        run: |
+          n=0
+          until ./scripts/build-flatpak.sh; do
+            n=$((n+1))
+            if [ "$n" -ge 3 ]; then echo "Flatpak build failed after $n attempts" >&2; exit 1; fi
+            echo "Flatpak build attempt $n failed; retrying in 10s..." >&2
+            sleep 10
+          done
 
       - name: Tag bundle with its arch
         # build-flatpak.sh always writes nz.ursa.Lantern.flatpak; rename so the

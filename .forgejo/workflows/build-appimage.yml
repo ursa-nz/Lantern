@@ -58,10 +58,21 @@ jobs:
             || apt-get install -y libgdk-pixbuf-2.0-bin
 
       - name: Build AppImage
+        # The build fetches linuxdeploy/appimagetool from github.com at run time,
+        # so a transient download hiccup can fail an otherwise-good build (it has
+        # flaked here while the same commit built green on GitHub). Retry a few
+        # times before giving up — the script re-creates AppDir on each run, so a
+        # retry starts clean.
         run: |
           version=""
           case "${GITHUB_REF}" in refs/tags/v*) version="${GITHUB_REF_NAME#v}" ;; esac
-          ./scripts/build-appimage.sh "${version}"
+          n=0
+          until ./scripts/build-appimage.sh "${version}"; do
+            n=$((n+1))
+            if [ "$n" -ge 3 ]; then echo "AppImage build failed after $n attempts" >&2; exit 1; fi
+            echo "AppImage build attempt $n failed; retrying in 10s..." >&2
+            sleep 10
+          done
 
       - name: Upload as workflow artifact
         # v3 for the same Forgejo runner reason as the other workflows.

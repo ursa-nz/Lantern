@@ -4,7 +4,7 @@
 
 <h1 align="center">Lantern</h1>
 
-A small GUI for authoring [Marp](https://marp.app/) slides on GNOME. Edit on the left, see the slide render on the right, present from the same window. The whole deck saves as one file.
+A simple GUI for authoring [Marp](https://marp.app/) slides on GNOME. Edit on the left, see the slide render on the right. Present from the same window, or in full screen. The whole deck saves as one (zip) file.
 
 Named after the magic lantern: the 1600s slide projector that came two centuries before cinema, where a presenter would burn an oil lamp behind painted glass slides and talk, sing or play music to the projected image. Same idea, a bit *cooler* (sorry).
 
@@ -31,7 +31,8 @@ Each tagged release ships ready-to-install bundles on the [latest release](https
 **Flatpak** (most distros). Grab `nz.ursa.Lantern.flatpak`, then:
 
 ```
-flatpak install --user ~/Downloads/nz.ursa.Lantern.flatpak
+flatpak remote-add --if-not-exists ursa https://software.ursa.nz/flatpak/ursa.flatpakrepo
+flatpak install ursa nz.ursa.Lantern
 flatpak run nz.ursa.Lantern
 ```
 
@@ -40,7 +41,11 @@ flatpak run nz.ursa.Lantern
 **Debian / Ubuntu** (`.deb`). One package installs on both Intel and ARM:
 
 ```
-sudo apt install ~/Downloads/lantern_1.1.0_all.deb
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSL https://software.ursa.nz/ursa-software.asc -o /etc/apt/keyrings/ursa-software.asc
+sudo curl -fsSL https://software.ursa.nz/ursa.sources -o /etc/apt/sources.list.d/ursa.sources
+sudo apt update
+sudo apt install lantern
 ```
 
 apt pulls the GTK and WebKit it needs. PowerPoint export uses `pandoc`, a recommended dependency apt installs unless you opt out. Then launch Lantern from the app grid, or run `lantern`.
@@ -122,12 +127,6 @@ scripts/          install-local, build-flatpak, build-deb, build-appimage, stage
 ## Status
 
 It all works. Create a deck, open one, or import a `.md`. Edit with a live preview that follows your cursor, and autosave keeps it current. The whole deck saves as one `.lantern` file. Drag in images and fonts with a placement dialog. Pick a theme and edit its CSS. Set fonts for the body, headings, and code. Name a deck and reopen recent ones. Present in a window or full screen, and export to HTML, PDF, and PPTX.
-
-PNG and JPEG export is the one thing not built yet.
-
-## Flathub
-
-Not yet. The live preview runs a small local web server so the page can hot reload while you type. For now that server listens on every network interface, so on an untrusted network someone could reach your open deck while Lantern is running. A loopback-only preview that closes this gap is in the works. That is the main thing standing between Lantern and a Flathub submission.
 
 ## License
 

@@ -67,6 +67,12 @@ class MarpServer:
         # the last few lines are kept here for a startup-failure diagnostic.
         self._stderr_tail: deque = deque(maxlen=10)
         self._stderr_thread: threading.Thread | None = None
+        # The window starts the server from a worker thread (binding takes a
+        # couple of seconds and must not freeze the UI), so the lifecycle
+        # methods serialize on a lock. `_closed` flips on shutdown() and makes
+        # any start still in flight abort instead of orphaning a process.
+        self._lock = threading.RLock()
+        self._closed = False
 
     # ---------- lifecycle ----------
     def start_for_directory(self, directory) -> None:
@@ -74,79 +80,95 @@ class MarpServer:
 
         No-op when we're already serving the same directory and the
         subprocess is still alive.  Otherwise tear down the old one
-        and start fresh.
+        and start fresh.  Blocks until the server answers, so call it
+        from a worker thread, not the UI loop.
         """
-        directory = str(Path(directory).expanduser().resolve())
-        if self.directory == directory and self._alive():
-            return
-        self.stop()
-
-        marp_bin = find_marp_bin()
-        if not marp_bin:
-            raise RuntimeError(
-                "marp binary not found. Run scripts/install-local.sh or the "
-                "flatpak build to provision dependencies."
-            )
-
-        port = self._pick_free_port()
-        env = os.environ.copy()
-        env["FORCE_COLOR"] = "0"
-        # marp-cli reads the server port from the PORT env var; there is
-        # no --port flag.  Passing one is silently ignored and marp
-        # falls back to 8080, which collides if multiple windows are open.
-        env["PORT"] = str(port)
-
-        # marp logs to stderr (one "<deck> processed." line per render) and
-        # nothing to stdout. Left unread, the OS pipe buffer (~64KB) fills after
-        # a few thousand renders and marp blocks mid-render, wedging the live
-        # preview. So pipe stderr and drain it continuously on a daemon thread,
-        # keeping only the last few lines for a startup-failure diagnostic.
-        self.process = subprocess.Popen(
-            [marp_bin, "--server", directory],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            # Close stdin: if marp inherits an open stdin pipe it waits on it
-            # for piped Markdown and never starts the server (so the preview
-            # would just time out). A desktop launch hands us /dev/null, but
-            # any pipe-bearing parent — a terminal launch, a wrapper — wouldn't.
-            stdin=subprocess.DEVNULL,
-            env=env,
-            cwd=directory,
-            text=True,
-        )
-        self._stderr_tail = deque(maxlen=10)
-        self._stderr_thread = threading.Thread(
-            target=self._drain_stderr, args=(self.process,), daemon=True)
-        self._stderr_thread.start()
-        try:
-            self._wait_for_port(port, timeout=15)
-        except TimeoutError as e:
-            # Stop the (possibly stuck) process, then let the drain thread flush
-            # the final stderr lines on the EOF that follows and read its tail.
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("the preview server is shutting down")
+            directory = str(Path(directory).expanduser().resolve())
+            if self.directory == directory and self._alive():
+                return
             self.stop()
-            self._stderr_thread.join(timeout=0.5)
-            tail = " | ".join(list(self._stderr_tail)[-3:])
-            if tail:
-                raise TimeoutError(f"{e}. marp said {tail}") from None
-            raise
 
-        self.port = port
-        self.directory = directory
+            marp_bin = find_marp_bin()
+            if not marp_bin:
+                raise RuntimeError(
+                    "marp binary not found. Run scripts/install-local.sh or the "
+                    "flatpak build to provision dependencies."
+                )
+
+            port = self._pick_free_port()
+            env = os.environ.copy()
+            env["FORCE_COLOR"] = "0"
+            # marp-cli reads the server port from the PORT env var; there is
+            # no --port flag.  Passing one is silently ignored and marp
+            # falls back to 8080, which collides if multiple windows are open.
+            env["PORT"] = str(port)
+
+            # marp logs to stderr (one "<deck> processed." line per render) and
+            # nothing to stdout. Left unread, the OS pipe buffer (~64KB) fills after
+            # a few thousand renders and marp blocks mid-render, wedging the live
+            # preview. So pipe stderr and drain it continuously on a daemon thread,
+            # keeping only the last few lines for a startup-failure diagnostic.
+            self.process = subprocess.Popen(
+                [marp_bin, "--server", directory],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                # Close stdin: if marp inherits an open stdin pipe it waits on it
+                # for piped Markdown and never starts the server (so the preview
+                # would just time out). A desktop launch hands us /dev/null, but
+                # any pipe-bearing parent — a terminal launch, a wrapper — wouldn't.
+                stdin=subprocess.DEVNULL,
+                env=env,
+                cwd=directory,
+                text=True,
+            )
+            self._stderr_tail = deque(maxlen=10)
+            self._stderr_thread = threading.Thread(
+                target=self._drain_stderr, args=(self.process,), daemon=True)
+            self._stderr_thread.start()
+            try:
+                self._wait_for_port(port, timeout=15)
+            except TimeoutError as e:
+                # Stop the (possibly stuck) process, then let the drain thread flush
+                # the final stderr lines on the EOF that follows and read its tail.
+                self.stop()
+                self._stderr_thread.join(timeout=0.5)
+                tail = " | ".join(list(self._stderr_tail)[-3:])
+                if tail:
+                    raise TimeoutError(f"{e}. marp said {tail}") from None
+                raise
+
+            self.port = port
+            self.directory = directory
 
     def stop(self) -> None:
         """Terminate the marp process (no-op if not running)."""
-        if self.process and self.process.poll() is None:
-            # SIGTERM first; give the process a few seconds to clean up.
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                # Didn't exit politely — escalate to SIGKILL.
-                self.process.kill()
-                self.process.wait()
-        self.process = None
-        self.port = None
-        self.directory = None
+        with self._lock:
+            if self.process and self.process.poll() is None:
+                # SIGTERM first; give the process a few seconds to clean up.
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    # Didn't exit politely — escalate to SIGKILL.
+                    self.process.kill()
+                    self.process.wait()
+            self.process = None
+            self.port = None
+            self.directory = None
+
+    def shutdown(self) -> None:
+        """Stop, and refuse any further starts (window teardown).
+
+        Setting `_closed` first (outside the lock) makes a start that's mid
+        port-wait abort within one poll tick rather than holding the lock —
+        and the main thread — for the full timeout.
+        """
+        self._closed = True
+        with self._lock:
+            self.stop()
 
     def url_for(self, file_path) -> str:
         """Browser URL for the slide deck at `file_path`."""
@@ -187,12 +209,13 @@ class MarpServer:
             s.bind(("127.0.0.1", 0))
             return s.getsockname()[1]
 
-    @staticmethod
-    def _wait_for_port(port: int, timeout: float) -> None:
+    def _wait_for_port(self, port: int, timeout: float) -> None:
         # marp's HTTP server takes a beat to come up after launch.
         # Poll-connect every 100ms until it answers or we time out.
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            if self._closed:
+                raise TimeoutError("cancelled: the window is closing")
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=0.2):
                     return

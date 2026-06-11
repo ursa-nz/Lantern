@@ -125,7 +125,13 @@ class Preview:
             # A late finish, after we already showed the error, still recovers.
             self._stack.set_visible_child_name("view")
 
-    def _on_load_failed(self, _view, _event, _uri, _error) -> bool:
+    def _on_load_failed(self, _view, _event, _uri, error) -> bool:
+        # A load superseded by a newer one reports CANCELLED; that's not a
+        # failure, and the newer load owns the watchdog — don't flash an
+        # error page over it.
+        if error.matches(WebKit.network_error_quark(),
+                         WebKit.NetworkError.CANCELLED):
+            return True
         self._cancel_watchdog()
         # Returning True suppresses WebKit's own error page so ours shows.
         self.show_error("The preview server didn't respond. Try reloading.")

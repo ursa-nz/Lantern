@@ -22,6 +22,8 @@ Part of Lantern, released under the GNU General Public License v3 or later.
 
 import json
 import os
+import re
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -70,9 +72,18 @@ def _save_state(state: dict) -> None:
     """Persist UI state.  Failures are swallowed — state is nice-to-have."""
     p = _config_dir() / "state.json"
     try:
-        p.write_text(json.dumps(state, indent=2))
+        # Write-then-rename: a crash mid-write would otherwise corrupt the
+        # file and silently drop the recents list.
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps(state, indent=2))
+        os.replace(tmp, p)
     except OSError:
         pass
+
+
+def _safe_filename(name: str) -> str:
+    """A dialog-safe initial file name: a metadata title may carry separators."""
+    return re.sub(r"[\\/\0]", "-", name).strip() or "presentation"
 
 
 class LanternWindow(Adw.ApplicationWindow):
@@ -97,6 +108,9 @@ class LanternWindow(Adw.ApplicationWindow):
         self._save_timeout = 0
         self._layout = LAYOUT_SPLIT
         self._resources_win = None
+        # Generation counter for the threaded preview start: a result is only
+        # applied if no newer start (or teardown) has superseded it.
+        self._preview_gen = 0
         # "Edit CSS" watches the theme file so an external editor's save
         # reloads the preview; the timeout coalesces a burst of write events.
         self._css_monitor = None
@@ -120,6 +134,7 @@ class LanternWindow(Adw.ApplicationWindow):
         # before — leaving feels like nothing happened.
         self._pre_present_layout: str | None = None
         self._presenting: bool = False
+        self._present_windowed: bool = False
         self._pre_present_decorated: bool = True
 
         self._show_welcome()
@@ -363,6 +378,7 @@ class LanternWindow(Adw.ApplicationWindow):
         else:
             self.fullscreen()
             hint = "Press Escape or F5 to exit"
+        self._present_windowed = windowed
         self._presenting = True
         # WebKit takes focus so marp's own arrow-key navigation works.
         self.preview.web_view.grab_focus()
@@ -380,6 +396,7 @@ class LanternWindow(Adw.ApplicationWindow):
             self._btn_split.set_active(True)
         self._pre_present_layout = None
         self._presenting = False
+        self._present_windowed = False
 
     def _on_key_pressed(self, _ctrl, keyval, _keycode, _state) -> bool:
         # Only consume Escape while presenting (fullscreen OR windowed).
@@ -390,11 +407,19 @@ class LanternWindow(Adw.ApplicationWindow):
         return False
 
     def _on_fullscreen_changed(self, *_):
-        # Safety net: if something else (window manager, compositor)
-        # leaves fullscreen, make sure the chrome comes back too.
-        if not self.is_fullscreen() and not self._toolbar_view.get_reveal_top_bars():
+        # Fires for our own fullscreen()/unfullscreen() and for the window
+        # manager acting on its own (e.g. Super+Down). Leaving fullscreen
+        # while presenting must run the whole exit path — restoring only the
+        # chrome would leave `_presenting`, the layout, and Escape handling
+        # out of sync, so the next F5 would "exit" a present mode that is no
+        # longer showing.
+        if self.is_fullscreen():
+            return
+        if self._presenting and not self._present_windowed:
+            self._exit_present()
+        elif not self._presenting and not self._toolbar_view.get_reveal_top_bars():
+            # Safety net for any other path that left the chrome hidden.
             self._toolbar_view.set_reveal_top_bars(True)
-            self._pre_present_layout = None
 
     # ------------------------------------------------------------------
     # Export
@@ -413,7 +438,7 @@ class LanternWindow(Adw.ApplicationWindow):
         _, label, ext = self._format_spec(suffix)
         dlg = Gtk.FileDialog.new()
         dlg.set_title(f"Export as {label}")
-        dlg.set_initial_name(f"{self.document.title}.{ext}")
+        dlg.set_initial_name(f"{_safe_filename(self.document.title)}.{ext}")
         folder = self._save_folder()
         if folder:
             dlg.set_initial_folder(folder)
@@ -428,10 +453,20 @@ class LanternWindow(Adw.ApplicationWindow):
         if not f or self.document.deck_path is None:
             return
         out_path = f.get_path()
-        _, label, ext = self._format_spec(suffix)
+        _, _label, ext = self._format_spec(suffix)
         if not out_path.lower().endswith("." + ext):
+            # The dialog's own replace confirmation never saw the suffixed
+            # name, so check for a collision ourselves before writing.
             out_path += "." + ext
+            self._confirm_replace(out_path,
+                                  lambda: self._run_export(suffix, out_path))
+            return
+        self._run_export(suffix, out_path)
 
+    def _run_export(self, suffix: str, out_path: str) -> None:
+        if self.document.deck_path is None:
+            return
+        _, label, _ext = self._format_spec(suffix)
         # The export engines read deck.md from the working dir, so flush the
         # latest editor text there first — otherwise the export would lag a
         # debounce cycle behind what the user sees on screen.
@@ -440,9 +475,30 @@ class LanternWindow(Adw.ApplicationWindow):
         except OSError as e:
             self._toast(f"Couldn't save before exporting. {e}", sticky=True)
             return
-
         self._toast(f"Exporting {label}…")
         export.run(suffix, str(self.document.deck_path), out_path, self._on_export_done)
+
+    def _confirm_replace(self, path: str, proceed) -> None:
+        """Run proceed(), asking first when `path` already exists.
+
+        Used wherever a file suffix is appended after the save dialog closed:
+        GTK's built-in replace confirmation only checked the name as typed.
+        """
+        if not os.path.exists(path):
+            proceed()
+            return
+        dlg = Adw.AlertDialog(
+            heading="Replace file?",
+            body=f"“{os.path.basename(path)}” already exists. "
+                 "Replacing it will overwrite its contents.")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("replace", "Replace")
+        dlg.set_response_appearance("replace", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        dlg.connect("response",
+                    lambda _d, resp: proceed() if resp == "replace" else None)
+        dlg.present(self)
 
     def _on_export_done(self, ok: bool, message: str) -> bool:
         """Report an export result. Invoked on the main loop by lantern.export.
@@ -626,12 +682,22 @@ class LanternWindow(Adw.ApplicationWindow):
         path = f.get_path()
         if not path.endswith(bundle.SUFFIX):
             path += bundle.SUFFIX
+            self._confirm_replace(path, lambda: self._create_new(path))
+            return
+        self._create_new(path)
+
+    def _create_new(self, path: str) -> None:
         text = self.document.new(bundle.display_name(path))
         self._stamp_meta(new=True)
         try:
             self.document.save(text, path=path)
         except OSError as e:
-            self._toast(f"Couldn't create the deck. {e}", sticky=True)
+            # The new deck is already adopted (the old working dir is gone),
+            # so show it regardless — it just has no .lantern yet, and Save
+            # will retry through Save As. Skipping _adopt_view here would
+            # leave the editor showing the old deck against the new document.
+            self._toast(f"Couldn't create the deck file. {e}", sticky=True)
+            self._adopt_view(text)
             return
         self._remember_folder(path)
         self._adopt_view(text)
@@ -696,7 +762,7 @@ class LanternWindow(Adw.ApplicationWindow):
     def _save_as(self, then=None) -> None:
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Save presentation")
-        dlg.set_initial_name(f"{self.document.title}{bundle.SUFFIX}")
+        dlg.set_initial_name(f"{_safe_filename(self.document.title)}{bundle.SUFFIX}")
         dlg.set_filters(self._bundle_filter())
         folder = self._save_folder()
         if folder:
@@ -713,6 +779,11 @@ class LanternWindow(Adw.ApplicationWindow):
         path = f.get_path()
         if not path.endswith(bundle.SUFFIX):
             path += bundle.SUFFIX
+            self._confirm_replace(path, lambda: self._finish_save_as(path, then))
+            return
+        self._finish_save_as(path, then)
+
+    def _finish_save_as(self, path: str, then=None) -> None:
         self._stamp_meta()
         try:
             self.document.save(self.editor.get_text(), path=path)
@@ -842,16 +913,27 @@ class LanternWindow(Adw.ApplicationWindow):
         if wd is None:
             return
         meta = bundle.read_meta(wd)
+        changed = False
         for key, row in (("title", self._prop_title), ("author", self._prop_author)):
             value = row.get_text().strip()
-            if value:
+            if value and meta.get(key) != value:
                 meta[key] = value
-            else:
-                meta.pop(key, None)
-        bundle.write_meta(wd, meta)
-        # Persist into the .lantern if it has one (this also stamps modified).
-        if self.document.is_saved:
-            self.action_save()
+                changed = True
+            elif not value and key in meta:
+                meta.pop(key)
+                changed = True
+        if not changed:
+            return
+        try:
+            bundle.write_meta(wd, meta)
+        except OSError as e:
+            self._toast(f"Couldn't update the properties. {e}", sticky=True)
+            return
+        # Like a text edit, the change lives in the working dir until the user
+        # saves; marking the document dirty makes the close guard cover it.
+        self.document.touch()
+        # Reflect a changed title in the header right away.
+        self._on_path_changed()
 
     # ------------------------------------------------------------------
     # Resources (images & fonts)
@@ -883,7 +965,21 @@ class LanternWindow(Adw.ApplicationWindow):
         wd = self.document.work_dir
         if wd is None:
             return
-        bundle.set_font_role(wd, role, rel)
+        try:
+            bundle.set_font_role(wd, role, rel)
+        except OSError as e:
+            self._toast(f"Couldn't update the font. {e}")
+            return
+        if rel:
+            # Fonts embed as base64 data URIs, so a big face balloons the
+            # generated CSS, the bundle, and every preview render.
+            try:
+                size_mb = (wd / rel).stat().st_size // (1024 * 1024)
+            except OSError:
+                size_mb = 0
+            if size_mb >= 5:
+                self._toast(f"That font is about {size_mb} MB — embedding it "
+                            "makes the deck large and the preview slower.")
         self._reconcile_theme()
 
     def _pick_theme(self, descriptor: dict) -> None:
@@ -898,16 +994,20 @@ class LanternWindow(Adw.ApplicationWindow):
             return
         name = descriptor.get("name", "default")
         kind = descriptor.get("kind")
-        # Curated and preset themes live outside the deck, so copy them in
-        # first; builtins and the bundle's own themes apply by name.
-        if kind == "curated":
-            name = bundle.install_curated_theme(wd, name)
-        elif kind == "preset":
-            name = bundle.install_user_theme(wd, name)
-        if name is None:
-            self._toast(f"Couldn't load the {descriptor.get('name')} theme.")
+        try:
+            # Curated and preset themes live outside the deck, so copy them in
+            # first; builtins and the bundle's own themes apply by name.
+            if kind == "curated":
+                name = bundle.install_curated_theme(wd, name)
+            elif kind == "preset":
+                name = bundle.install_user_theme(wd, name)
+            if name is None:
+                self._toast(f"Couldn't load the {descriptor.get('name')} theme.")
+                return
+            bundle.set_base_theme(wd, name)
+        except OSError as e:
+            self._toast(f"Couldn't apply the theme. {e}")
             return
-        bundle.set_base_theme(wd, name)
         self._reconcile_theme()
 
     def _reset_theme(self) -> None:
@@ -930,8 +1030,12 @@ class LanternWindow(Adw.ApplicationWindow):
         def on_response(_dlg, resp):
             if resp != "reset":
                 return
-            bundle.install_curated_theme(wd, base, overwrite=True)
-            bundle.generate_theme(wd)
+            try:
+                bundle.install_curated_theme(wd, base, overwrite=True)
+                bundle.generate_theme(wd)
+            except OSError as e:
+                self._toast(f"Couldn't reset the theme. {e}")
+                return
             self._reconcile_theme()
             self._toast("Theme reset")
         dlg.connect("response", on_response)
@@ -963,10 +1067,10 @@ class LanternWindow(Adw.ApplicationWindow):
                 return
             try:
                 css = path.read_text(encoding="utf-8")
+                slug = bundle.save_user_theme(name_row.get_text(), css)
             except OSError as e:
-                self._toast(f"Couldn't read the theme. {e}")
+                self._toast(f"Couldn't save the preset. {e}")
                 return
-            slug = bundle.save_user_theme(name_row.get_text(), css)
             if slug is None:
                 self._toast("Give the preset a name.")
                 return
@@ -980,7 +1084,12 @@ class LanternWindow(Adw.ApplicationWindow):
     def _reconcile_theme(self) -> None:
         """Point the deck's `theme:` directive at the effective theme (the
         managed lantern theme when fonts are assigned, else the base theme),
-        flush deck.md, persist if the deck is saved, and reload the preview.
+        flush deck.md, and reload the preview.
+
+        The .lantern itself is NOT re-zipped here: that would silently commit
+        every unsaved text edit alongside the theme change. The document is
+        marked dirty instead, so the regular save flow (and the close guard)
+        picks the change up.
         """
         wd = self.document.work_dir
         if wd is None:
@@ -988,14 +1097,15 @@ class LanternWindow(Adw.ApplicationWindow):
         text = self.editor.get_text()
         themed = bundle.set_theme_directive(text, bundle.effective_theme(wd))
         if themed != text:
-            self.editor.set_text(themed)
+            # Splice, don't set_text: rewriting one frontmatter line mustn't
+            # wipe the undo stack or yank the cursor to the top.
+            self.editor.splice_text(themed)
         try:
             self.document.write_working(self.editor.get_text())
         except OSError as e:
             self._toast(f"Couldn't update the deck. {e}")
             return
-        if self.document.is_saved:
-            self.action_save()
+        self.document.touch()
         self.preview.reload()
 
     def _edit_css(self) -> None:
@@ -1012,8 +1122,12 @@ class LanternWindow(Adw.ApplicationWindow):
         base = bundle.base_theme(wd)
         path = bundle.theme_css_path(wd, base)
         if path is None:
-            path = bundle.ensure_custom_theme(wd, import_base=base)
-            bundle.set_base_theme(wd, bundle.CUSTOM_THEME_NAME)
+            try:
+                path = bundle.ensure_custom_theme(wd, import_base=base)
+                bundle.set_base_theme(wd, bundle.CUSTOM_THEME_NAME)
+            except OSError as e:
+                self._toast(f"Couldn't create an editable theme. {e}")
+                return
             self._reconcile_theme()
             if self._resources_win is not None:
                 self._resources_win.refresh()
@@ -1070,9 +1184,13 @@ class LanternWindow(Adw.ApplicationWindow):
             path = gf.get_path()
             if not path or os.path.splitext(path)[1].lower() not in resources.IMAGE_EXTS:
                 continue
-            rels.append(bundle.add_image(self.document.work_dir, path))
+            try:
+                rels.append(bundle.add_image(self.document.work_dir, path))
+            except OSError as e:
+                self._toast(f"Couldn't add {os.path.basename(path)}. {e}")
         if not rels:
             return
+        self.document.touch()
         if self._resources_win is not None:
             self._resources_win.refresh()
         # Present one placement dialog at a time: each opens the next when it
@@ -1102,18 +1220,45 @@ class LanternWindow(Adw.ApplicationWindow):
             self.document.write_working(self.editor.get_text())
         except OSError:
             pass
-        self.marp.stop()
-        self._start_preview(self.document.deck_path)
+        self._start_preview(self.document.deck_path, restart=True)
 
-    def _start_preview(self, deck_path: Path) -> None:
-        # marp --server watches the deck's directory; for a bundle that's the
-        # small working dir, so the server binds quickly.
-        try:
-            self.marp.start_for_directory(deck_path.parent)
-        except (RuntimeError, TimeoutError) as e:
-            self.preview.show_error(str(e))
-            return
-        self.preview.load_url(self.marp.url_for(deck_path))
+    def _start_preview(self, deck_path: Path, restart: bool = False) -> None:
+        """Bring the marp server up for `deck_path` without blocking the UI.
+
+        Starting marp means launching node and waiting for its port — seconds
+        on a good day, the full timeout on a bad one — so the wait happens on
+        a worker thread. The generation counter ties each result back to the
+        newest request: a slow start that an open/close has overtaken is
+        simply dropped (teardown stops the server itself).
+        """
+        self._preview_gen += 1
+        gen = self._preview_gen
+        self.preview.show_idle("Starting the preview…")
+
+        def worker():
+            try:
+                if restart:
+                    self.marp.stop()
+                # marp --server watches the deck's directory; for a bundle
+                # that's the small working dir, so the server binds quickly.
+                self.marp.start_for_directory(deck_path.parent)
+                url = self.marp.url_for(deck_path)
+            except (RuntimeError, TimeoutError) as e:
+                GLib.idle_add(self._on_preview_failed, gen, str(e))
+                return
+            GLib.idle_add(self._on_preview_ready, gen, url)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_preview_ready(self, gen: int, url: str) -> bool:
+        if gen == self._preview_gen and self.document.deck_path is not None:
+            self.preview.load_url(url)
+        return GLib.SOURCE_REMOVE
+
+    def _on_preview_failed(self, gen: int, message: str) -> bool:
+        if gen == self._preview_gen and self.document.deck_path is not None:
+            self.preview.show_error(message)
+        return GLib.SOURCE_REMOVE
 
     # ------------------------------------------------------------------
     # Editor / autosave
@@ -1247,5 +1392,7 @@ class LanternWindow(Adw.ApplicationWindow):
             self._css_monitor = None
         if self._resources_win is not None:
             self._resources_win.destroy()
-        self.marp.stop()
+        # shutdown(), not stop(): it also aborts a preview start still waiting
+        # on its port, so no orphan server can outlive the window.
+        self.marp.shutdown()
         self.document.close()

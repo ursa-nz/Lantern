@@ -12,6 +12,9 @@ Two snapshots track two different kinds of "dirty":
   that keeps marp's live preview current.
 - saved text — what was last re-zipped into the .lantern; drives the
   "unsaved changes" state in the title bar and on close.
+A bundle-dirty flag covers the changes no text snapshot can see (assets added
+or removed, theme picks, metadata edits): touch() raises it, save() clears it,
+and is_dirty() reports either kind.
 
 - Document: owns the working dir, deck.md, and (once saved) the .lantern
   path. new()/open_bundle()/import_md() set things up; write_working() is the
@@ -21,12 +24,22 @@ Two snapshots track two different kinds of "dirty":
 Part of Lantern, released under the GNU General Public License v3 or later.
 """
 
+import os
 from pathlib import Path
 from typing import Optional
 
 from gi.repository import GObject
 
 from lantern import bundle
+
+
+def _normalized(text: str) -> str:
+    """Text as the editor and bundle expect it: LF newlines, no BOM.
+
+    A CRLF or BOM-prefixed deck would otherwise dodge the frontmatter regex in
+    bundle.set_theme_directive, which then prepends a duplicate block.
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
 
 
 class Document(GObject.Object):
@@ -46,6 +59,7 @@ class Document(GObject.Object):
         self._import_name: Optional[str] = None     # title while still unsaved
         self._working_text: str = ""                # last written to deck.md
         self._saved_text: str = ""                  # last re-zipped to the bundle
+        self._bundle_dirty: bool = False            # non-text changes since last save
 
     # ---------- properties ----------
     @property
@@ -102,17 +116,22 @@ class Document(GObject.Object):
         """
         zip_path = Path(zip_path).expanduser().resolve()
         work_dir = bundle.unpack(zip_path)   # may raise ValueError
-        text = (work_dir / bundle.DECK_NAME).read_text(encoding="utf-8")
+        text = _normalized((work_dir / bundle.DECK_NAME).read_text(encoding="utf-8"))
         self._adopt(work_dir, bundle_path=zip_path,
                     import_name=None, deck_text=text, saved=True)
         return text
 
     def import_md(self, md_path) -> str:
-        """Wrap a loose .md into a fresh, unsaved bundle; return its text."""
+        """Wrap a loose .md into a fresh, unsaved bundle; return its text.
+
+        Local images the file references come along (best effort), so the
+        preview and the saved bundle keep rendering them.
+        """
         md_path = Path(md_path).expanduser().resolve()
-        text = md_path.read_text(encoding="utf-8")
+        text = _normalized(md_path.read_text(encoding="utf-8"))
         work_dir = bundle.new_working_dir()
         bundle.scaffold(work_dir, text)
+        bundle.import_referenced_assets(work_dir, md_path.parent, text)
         self._adopt(work_dir, bundle_path=None,
                     import_name=md_path.stem, deck_text=text, saved=False,
                     already_scaffolded=True)
@@ -123,7 +142,11 @@ class Document(GObject.Object):
         """Autosave: write `text` to deck.md. Cheap; does NOT re-zip."""
         if self.deck_path is None or text == self._working_text:
             return
-        self.deck_path.write_text(text, encoding="utf-8")
+        # Write-then-rename so marp's watcher (or a crash) never sees a
+        # half-written deck. pack() skips *.tmp should one ever survive.
+        tmp = self.deck_path.with_name(self.deck_path.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, self.deck_path)
         self._working_text = text
 
     def save(self, text: str, path=None) -> None:
@@ -143,12 +166,18 @@ class Document(GObject.Object):
         self._bundle_path = target
         self._import_name = None
         self._saved_text = text
+        self._bundle_dirty = False
         if moved:
             self.emit("path-changed")
 
+    def touch(self) -> None:
+        """Mark a non-text bundle change (asset, theme, metadata) as unsaved,
+        so the save guard prompts for it like any text edit."""
+        self._bundle_dirty = True
+
     def is_dirty(self, current: str) -> bool:
-        """True if `current` differs from what was last saved to the bundle."""
-        return current != self._saved_text
+        """True if `current`, or any bundle-level change, isn't in the .lantern yet."""
+        return current != self._saved_text or self._bundle_dirty
 
     def close(self) -> None:
         """Drop the working directory (call when the window closes)."""
@@ -170,6 +199,7 @@ class Document(GObject.Object):
         self._working_text = deck_text
         # Unsaved decks have no on-disk bundle yet, so everything is "dirty".
         self._saved_text = deck_text if saved else ""
+        self._bundle_dirty = False
         self.emit("path-changed")
 
 

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, Gtk
 
-from lantern import APP_ID, APP_NAME, __version__
+from lantern import APP_ID, APP_NAME, __version__, bundle
 from lantern.window import LanternWindow
 
 
@@ -36,6 +36,9 @@ class LanternApp(Adw.Application):
     # (no files) or do_open (one or more files passed in).
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
+        # Clear working dirs orphaned by a crash or kill before any window
+        # creates fresh ones; live instances are recognised by their pid files.
+        bundle.sweep_stale_work_dirs()
         # Bundled fonts need no registration here: the flatpak ships them under
         # /app/share/fonts (already on fontconfig's path), and install-local.sh
         # runs fc-cache for the local-dev case.
@@ -77,7 +80,13 @@ class LanternApp(Adw.Application):
                 self.set_accels_for_action(f"app.{name}", accels)
 
     def _on_quit(self, *_):
-        self.quit()
+        # Close each window through its close-request guard, NOT quit():
+        # quit() tears the main loop down without emitting close-request, so
+        # unsaved decks would be dropped silently and the marp servers and
+        # working dirs would be orphaned. A window with unsaved changes holds
+        # itself open to prompt; the app exits once the last window is gone.
+        for win in list(self.get_windows()):
+            win.close()
 
     def _on_new(self, *_):
         self._foreground_window().action_new_file()

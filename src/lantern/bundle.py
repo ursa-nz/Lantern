@@ -40,6 +40,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote, unquote
 
 DECK_NAME = "deck.md"
 # A bundle is a zip with a single .lantern extension. The plain .zip form was
@@ -53,6 +54,11 @@ SUFFIX = ".lantern"
 # match on this fixed-offset marker wins (see nz.ursa.Lantern.mime.xml).
 MIME_TYPE = "application/vnd.lantern+zip"
 MIMETYPE_FILE = "mimetype"
+
+# Each working dir records the pid of the instance that created it, so a
+# startup sweep can tell a dir orphaned by a crash from one a live instance
+# (e.g. another session of the same user) still owns. Never packed.
+PID_FILE = ".lantern-pid"
 
 # Where assets live inside a bundle. Fonts sit under styles/ so a custom theme
 # CSS can @font-face them with a relative path that survives unzip.
@@ -114,7 +120,36 @@ def _work_root() -> Path:
 
 def new_working_dir() -> Path:
     """Create and return a fresh, empty working directory."""
-    return Path(tempfile.mkdtemp(dir=_work_root()))
+    d = Path(tempfile.mkdtemp(dir=_work_root()))
+    (d / PID_FILE).write_text(str(os.getpid()), encoding="ascii")
+    return d
+
+
+def sweep_stale_work_dirs() -> None:
+    """Remove working dirs orphaned by a crash or kill (best effort).
+
+    GApplication uniqueness means at most one instance per session bus, so at
+    startup anything under the work root belongs to a dead process or to an
+    instance in another login session. The pid marker tells them apart: a dir
+    whose recorded pid is gone is stale, one whose pid is alive is left alone.
+    """
+    root = _work_root()
+    for d in root.iterdir():
+        if not d.is_dir():
+            continue
+        try:
+            pid = int((d / PID_FILE).read_text(encoding="ascii"))
+        except (OSError, ValueError):
+            cleanup(d)   # no readable marker: predates the marker, so stale
+            continue
+        if pid == os.getpid():
+            continue
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            cleanup(d)
+        except OSError:
+            pass   # alive but not ours, or an odd platform error: keep it
 
 
 def scaffold(work_dir, deck_text: str) -> None:
@@ -138,6 +173,9 @@ def unpack(zip_path) -> Path:
     if not (work_dir / DECK_NAME).is_file():
         cleanup(work_dir)
         raise ValueError(f"{Path(zip_path).name} is not a Lantern bundle (no {DECK_NAME})")
+    # The content marker only matters inside the zip; don't leave a copy for
+    # marp to watch and pack() to skip.
+    (work_dir / MIMETYPE_FILE).unlink(missing_ok=True)
     # Tolerate bundles that omitted the (possibly empty) asset dirs.
     (work_dir / "images").mkdir(exist_ok=True)
     (work_dir / "styles").mkdir(exist_ok=True)
@@ -159,15 +197,20 @@ def pack(work_dir, zip_path) -> None:
     # strict_timestamps=False clamps any pre-1980 mtime (e.g. OSTree zeroes the
     # timestamps on flatpak-shipped files) up to 1980 instead of raising, so a
     # stray old mtime on a bundled asset can never crash a save.
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
-        marker = zipfile.ZipInfo(MIMETYPE_FILE)
-        marker.compress_type = zipfile.ZIP_STORED   # must be uncompressed
-        zf.writestr(marker, MIME_TYPE.encode("ascii"))
-        for p in sorted(work_dir.rglob("*")):
-            rel = p.relative_to(work_dir).as_posix()
-            if p.is_file() and rel != MIMETYPE_FILE:
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
+            marker = zipfile.ZipInfo(MIMETYPE_FILE)
+            marker.compress_type = zipfile.ZIP_STORED   # must be uncompressed
+            zf.writestr(marker, MIME_TYPE.encode("ascii"))
+            for p in sorted(work_dir.rglob("*")):
+                rel = p.relative_to(work_dir).as_posix()
+                if not p.is_file() or rel in (MIMETYPE_FILE, PID_FILE) \
+                        or rel.endswith(".tmp"):
+                    continue
                 zf.write(p, rel)
-    os.replace(tmp, zip_path)
+        os.replace(tmp, zip_path)
+    finally:
+        tmp.unlink(missing_ok=True)   # a failed save shouldn't litter
 
 
 def cleanup(work_dir) -> None:
@@ -194,8 +237,13 @@ def write_meta(work_dir, meta: dict) -> None:
     """Write the bundle manifest, always stamping the format version."""
     payload = {"format": _FORMAT}
     payload.update({k: v for k, v in meta.items() if k != "format"})
-    (Path(work_dir) / MANIFEST).write_text(
+    # Write-then-rename so a crash mid-write can't leave a corrupt manifest
+    # (read_meta would silently return {} and drop the deck's metadata).
+    target = Path(work_dir) / MANIFEST
+    tmp = target.with_name(MANIFEST + ".tmp")
+    tmp.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp, target)
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +358,10 @@ def generate_theme(work_dir) -> None:
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 _THEME_LINE_RE = re.compile(r"^theme:.*$", re.MULTILINE)
 
+# Marp splits slides on any CommonMark thematic break, not just `---`: three
+# or more of the same marker (-, * or _), optionally space-separated.
+_HR_LINE_RE = re.compile(r"(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}")
+
 
 def set_theme_directive(deck_text: str, name: str) -> str:
     """Return `deck_text` with its frontmatter `theme:` set to `name`.
@@ -359,7 +411,7 @@ def slide_index_at_line(deck_text: str, line: int) -> int:
             in_fence = True
             fence = s[:3]
             continue
-        if i > fm_close and s == "---":
+        if i > fm_close and _HR_LINE_RE.fullmatch(s):
             slide += 1
     return slide
 
@@ -583,6 +635,40 @@ def add_font(work_dir, src) -> str:
     return _add_asset(work_dir, src, FONTS_DIR)
 
 
+# Image references in Markdown: ![alt](path) with an optional <bracketed> path.
+_MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^)\s]+))")
+
+
+def import_referenced_assets(work_dir, source_dir, deck_text: str) -> int:
+    """Copy the local images a loose .md references into the working dir.
+
+    Each relative reference keeps its relative path, so the deck text needs no
+    rewriting. References that are URLs, absolute, escape the source directory,
+    or don't resolve are left alone. Returns how many files were copied.
+    """
+    work_dir = Path(work_dir)
+    source_dir = Path(source_dir)
+    copied = 0
+    for m in _MD_IMAGE_RE.finditer(deck_text):
+        target = (m.group(1) or m.group(2) or "").strip()
+        if not target or re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*:", target):
+            continue   # URL or data: — nothing on disk to copy
+        relpath = Path(unquote(target.split("#", 1)[0]))
+        if relpath.is_absolute() or ".." in relpath.parts:
+            continue
+        src = source_dir / relpath
+        dest = work_dir / relpath
+        try:
+            if not src.is_file() or dest.exists():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            copied += 1
+        except OSError:
+            continue   # best effort: a missing image just stays a broken ref
+    return copied
+
+
 def list_images(work_dir, order: str = "recent") -> list:
     """Bundle-relative paths of the files in images/, in the requested order.
 
@@ -622,8 +708,16 @@ def delete_asset(work_dir, rel) -> None:
 
 
 def count_references(deck_text: str, rel: str) -> int:
-    """How many times the bundle-relative path appears in the deck text."""
-    return deck_text.count(rel)
+    """How many times the bundle-relative path appears in the deck text.
+
+    Counts the percent-encoded form too, since image_markdown encodes paths
+    whose names carry spaces or parentheses.
+    """
+    n = deck_text.count(rel)
+    encoded = quote(rel)
+    if encoded != rel:
+        n += deck_text.count(encoded)
+    return n
 
 
 # Marp image options the dialog can set. Filters are bare keywords (Marp gives
@@ -658,7 +752,10 @@ def image_markdown(rel: str, *, background: bool = False,
         if height.strip():
             tokens.append(f"h:{height.strip()}")
     tokens.extend(f for f in filters if f in IMAGE_FILTERS)
-    return f"![{' '.join(tokens)}]({rel})"
+    # Percent-encode the path: CommonMark link destinations can't carry bare
+    # spaces or parentheses (a GNOME screenshot name has both), and an
+    # unencoded one silently renders as text instead of an image.
+    return f"![{' '.join(tokens)}]({quote(rel)})"
 
 
 def _add_asset(work_dir, src, subdir) -> str:

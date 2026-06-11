@@ -174,12 +174,19 @@ class ResourcesWindow(Adw.Window):
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(Adw.HeaderBar())
         toolbar.set_content(scroller)
-        self.set_content(toolbar)
+        # Toast overlay so filesystem failures (a copy that didn't take, a
+        # delete that bounced) surface here rather than only on stderr.
+        self._toast_overlay = Adw.ToastOverlay()
+        self._toast_overlay.set_child(toolbar)
+        self.set_content(self._toast_overlay)
 
         # Drop files anywhere in the window to add them to the bundle.
         install_file_drop(scroller, self._handle_dropped_files)
 
         self.refresh()
+
+    def _toast(self, message: str) -> None:
+        self._toast_overlay.add_toast(Adw.Toast.new(message))
 
     # ------------------------------------------------------------------
     # List building
@@ -320,7 +327,12 @@ class ResourcesWindow(Adw.Window):
         except GLib.Error:
             return
         if f and f.get_path():
-            adder(self._doc.work_dir, f.get_path())
+            try:
+                adder(self._doc.work_dir, f.get_path())
+            except OSError as e:
+                self._toast(f"Couldn't add that file. {e}")
+                return
+            self._doc.touch()
             self.refresh()
 
     def _insert_image(self, rel) -> None:
@@ -351,7 +363,12 @@ class ResourcesWindow(Adw.Window):
         if work_dir is not None:
             affected = [role for role, frel in bundle.font_roles(work_dir).items()
                         if frel == rel]
-        bundle.delete_asset(self._doc.work_dir, rel)
+        try:
+            bundle.delete_asset(self._doc.work_dir, rel)
+        except OSError as e:
+            self._toast(f"Couldn't delete {_basename(rel)}. {e}")
+            return
+        self._doc.touch()
         # Clear each role so the theme reverts to the default font and the
         # re-save drops the now-removed file cleanly (no dangling reference).
         for role in affected:
@@ -402,13 +419,17 @@ class ResourcesWindow(Adw.Window):
             if not path:
                 continue
             ext = os.path.splitext(path)[1].lower()
-            if ext in IMAGE_EXTS:
-                bundle.add_image(work_dir, path)
-                added = True
-            elif ext in FONT_EXTS:
-                bundle.add_font(work_dir, path)
-                added = True
+            try:
+                if ext in IMAGE_EXTS:
+                    bundle.add_image(work_dir, path)
+                    added = True
+                elif ext in FONT_EXTS:
+                    bundle.add_font(work_dir, path)
+                    added = True
+            except OSError as e:
+                self._toast(f"Couldn't add {os.path.basename(path)}. {e}")
         if added:
+            self._doc.touch()
             self.refresh()
 
     # ------------------------------------------------------------------

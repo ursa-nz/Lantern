@@ -53,6 +53,11 @@ _DEFAULT_SIZE = (1280, 720)
 _PX_TO_PT = 0.75  # 96dpi CSS pixel -> 72dpi print point
 
 _EXPORT_TIMEOUT = 180  # seconds; marp/pandoc occasionally chew on big decks
+_PDF_TIMEOUT = 120     # seconds; covers the offscreen page load and the print
+
+# Each in-flight printer is referenced here so neither it nor its WebKit
+# objects can be garbage-collected mid-print.
+_ACTIVE_PRINTERS: set = set()
 
 
 def run(fmt: str, md_path: str, out_path: str, on_done) -> None:
@@ -195,6 +200,11 @@ class _PdfPrinter:
         self._out = out_path
         self._on_done = on_done
         self._w, self._h = _read_page_size(self._html)
+        # WebKit emits PrintOperation::finished after ::failed too, so the
+        # teardown below must run exactly once whichever path gets there first.
+        self._done = False
+        self._watchdog = 0
+        self._op = None
 
         ucm = WebKit.UserContentManager()
         ucm.add_style_sheet(WebKit.UserStyleSheet(
@@ -208,7 +218,12 @@ class _PdfPrinter:
         self._win.set_child(self._view)
 
     def start(self) -> None:
+        _ACTIVE_PRINTERS.add(self)
         self._view.connect("load-changed", self._on_load)
+        # Without this, a load that never finishes would leak the offscreen
+        # window (and its ~100MB web process) per attempt, with no toast.
+        self._view.connect("load-failed", self._on_load_failed)
+        self._watchdog = GLib.timeout_add_seconds(_PDF_TIMEOUT, self._on_timeout)
         self._win.present()
         self._view.load_uri(GLib.filename_to_uri(str(self._html), None))
 
@@ -217,15 +232,36 @@ class _PdfPrinter:
             # Let layout settle one tick before printing.
             GLib.timeout_add(150, self._do_print)
 
+    def _on_load_failed(self, _view, _event, _uri, error) -> bool:
+        self._finish(False, f"PDF export failed. {error.message}")
+        return True
+
+    def _on_timeout(self) -> bool:
+        self._watchdog = 0
+        self._finish(False, "PDF export timed out.")
+        return GLib.SOURCE_REMOVE
+
     def _do_print(self) -> bool:
+        if self._done:
+            return False
         op = WebKit.PrintOperation.new(self._view)
+        self._op = op   # hold a reference for the duration of the print
         op.set_print_settings(self._settings())
         op.set_page_setup(self._page_setup())
-        op.connect("finished", lambda *_: self._finish(True, f"Exported {Path(self._out).name}"))
+        op.connect("finished", lambda *_: self._on_op_finished())
         op.connect("failed", lambda _o, e: self._finish(False, f"PDF export failed. {e.message}"))
         # `print` is a builtin; gi exposes the method as print() or print_().
         (getattr(op, "print", None) or getattr(op, "print_"))()
         return False
+
+    def _on_op_finished(self) -> None:
+        # On failure this fires right after ::failed and _finish's guard makes
+        # it a no-op, so only a genuinely successful print reports success —
+        # and only when the file really landed.
+        if Path(self._out).exists():
+            self._finish(True, f"Exported {Path(self._out).name}")
+        else:
+            self._finish(False, "PDF export failed. Nothing was written.")
 
     def _settings(self) -> Gtk.PrintSettings:
         s = Gtk.PrintSettings()
@@ -248,6 +284,13 @@ class _PdfPrinter:
         return ps
 
     def _finish(self, ok: bool, message: str) -> None:
+        if self._done:
+            return
+        self._done = True
+        if self._watchdog:
+            GLib.source_remove(self._watchdog)
+            self._watchdog = 0
         self._win.destroy()
         shutil.rmtree(self._html.parent, ignore_errors=True)
+        _ACTIVE_PRINTERS.discard(self)
         self._on_done(ok, message)

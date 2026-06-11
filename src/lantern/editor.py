@@ -123,6 +123,33 @@ class Editor(GObject.Object):
         finally:
             self.buffer.handler_unblock_by_func(self._on_buffer_changed)
 
+    def splice_text(self, new_text: str) -> None:
+        """Apply `new_text` as a minimal, undoable edit.
+
+        Unlike set_text (an irreversible action that also drops the caret to
+        the start), this replaces only the span that actually changed, so the
+        cursor, scroll position, and undo history survive a small programmatic
+        tweak like rewriting the frontmatter's theme line.
+        """
+        old = self.get_text()
+        if new_text == old:
+            return
+        head = 0
+        limit = min(len(old), len(new_text))
+        while head < limit and old[head] == new_text[head]:
+            head += 1
+        tail = 0
+        limit -= head
+        while tail < limit and old[len(old) - 1 - tail] == new_text[len(new_text) - 1 - tail]:
+            tail += 1
+        buf = self.buffer
+        buf.begin_user_action()
+        buf.delete(buf.get_iter_at_offset(head),
+                   buf.get_iter_at_offset(len(old) - tail))
+        buf.insert(buf.get_iter_at_offset(head),
+                   new_text[head:len(new_text) - tail])
+        buf.end_user_action()
+
     # ---------- formatting bar ----------
     def set_toolbar_visible(self, visible: bool) -> None:
         """Show or hide the formatting bar."""
@@ -166,11 +193,24 @@ class Editor(GObject.Object):
             self._enter_run += 1
             if self._enter_run >= 4:
                 self._enter_run = 0
-                self._enters_to_slide_break()
-                return True   # swallow the fourth Enter
+                # Keystrokes alone can't tell that the user clicked elsewhere
+                # between Enters, so also require the previous Enters' blank
+                # lines to actually sit behind the cursor — otherwise a break
+                # would land mid-paragraph at the new click point.
+                if self._newline_run_before_cursor() >= 3:
+                    self._enters_to_slide_break()
+                    return True   # swallow the fourth Enter
             return False
         self._enter_run = 0
         return False
+
+    def _newline_run_before_cursor(self) -> int:
+        """How many consecutive newlines sit immediately before the cursor."""
+        it = self.buffer.get_iter_at_mark(self.buffer.get_insert())
+        n = 0
+        while it.backward_char() and it.get_char() == "\n":
+            n += 1
+        return n
 
     def _enters_to_slide_break(self) -> None:
         """Replace the run of just-typed blank lines with a slide break."""

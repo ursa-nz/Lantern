@@ -89,6 +89,26 @@
   </branding>
 
   <releases>
+    <release version="1.1.0" date="2026-06-11">
+      <description>
+        <p>
+          A reliability release, from a top-to-bottom audit of saving,
+          exporting, and presenting.
+        </p>
+        <ul>
+          <li>Quit now asks about unsaved changes instead of discarding them.</li>
+          <li>PDF export reports failures properly and no longer leaks memory when a print goes wrong.</li>
+          <li>Picking a theme or assigning a font no longer silently saves the deck, wipes undo history, or moves the cursor.</li>
+          <li>Adding images, fonts, or metadata marks the deck unsaved, so closing prompts to keep them.</li>
+          <li>Images with spaces in their file names now render.</li>
+          <li>Importing a Markdown file brings its local images along.</li>
+          <li>Opening a deck no longer freezes the window while the preview starts.</li>
+          <li>Leaving fullscreen via the window manager exits presenting cleanly.</li>
+          <li>Saving over an existing file always asks first.</li>
+          <li>Stale working folders from crashes are cleaned up at launch.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.7" date="2026-06-08">
       <description>
         <p>A maintenance release. Screenshots are served from the ursa.nz software repository.</p>

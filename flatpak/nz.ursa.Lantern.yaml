@@ -6,23 +6,36 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.node22
 command: lantern
 
-# Sandbox permissions.
+# Sandbox permissions — kept to what software centers rate as "Safe":
+# no network, no filesystem access, Wayland-first windowing.
 #
-# Known limitation: --share=network is here because WebKitGTK and parts of
-# the GNOME portal stack make network-related calls at startup that fail
-# under --unshare=network (org.freedesktop.portal.Error.NotAllowed).  The
-# downside is that marp --server binds to all interfaces (it has no
-# --host/HOST option), so while Lantern is running its preview port is
-# reachable from the local network.  The port is randomised on each launch
-# so it's not trivially discoverable, but on an untrusted LAN it's still a leak.
+# No --share=network: the app and its bundled marp server share a private,
+# loopback-only network namespace.  WebKit, marp and the live-reload
+# websocket all talk over localhost inside it, and marp's server (which
+# binds every interface and has no --host option) is unreachable from the
+# LAN — previously documented here as a leak.  What made this look
+# impossible before: WebKit resolves proxies through the ProxyResolver
+# portal, which rejects apps without network permission
+# (org.freedesktop.portal.Error.NotAllowed), failing even loopback loads.
+# application.py forces NO_PROXY on the WebKit session, so the lookup
+# never happens.  The cost: http(s) image references in a deck no longer
+# render — bundle images instead, or restore networking per-install with
+# `flatpak override --share=network nz.ursa.Lantern`.
+#
+# No --filesystem=home: open/save/export use Gtk.FileDialog, which routes
+# through the FileChooser portal and grants per-file access via the
+# document portal.  State, themes and working dirs live in the app's own
+# XDG dirs inside the sandbox, which need no permission.  One degradation:
+# importing a loose .md can't see images sitting next to it (the portal
+# grants only the picked file); the bundle's add-image flow covers that.
+#
+# org.freedesktop.portal.Desktop needs no talk-name: flatpak grants
+# portal access by default.
 finish-args:
-  - --share=ipc
-  - --share=network
+  - --share=ipc               # X11 fallback performance (MIT-SHM)
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
-  - --filesystem=home         # user opens/saves .md files anywhere in $HOME
-  - --talk-name=org.freedesktop.portal.Desktop
 
 build-options:
   append-path: /usr/lib/sdk/node22/bin

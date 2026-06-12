@@ -14,7 +14,7 @@ Part of Lantern, released under the GNU General Public License v3 or later.
 import os
 from pathlib import Path
 
-from gi.repository import Adw, Gdk, Gio, Gtk
+from gi.repository import Adw, Gdk, Gio, Gtk, WebKit
 
 from lantern import APP_ID, APP_NAME, __version__, bundle
 from lantern.window import LanternWindow
@@ -39,6 +39,14 @@ class LanternApp(Adw.Application):
         # Clear working dirs orphaned by a crash or kill before any window
         # creates fresh ones; live instances are recognised by their pid files.
         bundle.sweep_stale_work_dirs()
+        # Every WebView (preview, PDF printer) loads only the local marp
+        # server or local files, so proxies never apply.  Saying so up front
+        # matters in the flatpak: a proxy lookup goes through the
+        # ProxyResolver portal, which rejects apps that lack network
+        # permission — failing even loopback loads before a socket is opened.
+        # NO_PROXY skips the lookup entirely.
+        WebKit.NetworkSession.get_default().set_proxy_settings(
+            WebKit.NetworkProxyMode.NO_PROXY, None)
         # Bundled fonts need no registration here: the flatpak ships them under
         # /app/share/fonts (already on fontconfig's path), and install-local.sh
         # runs fc-cache for the local-dev case.

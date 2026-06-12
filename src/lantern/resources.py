@@ -40,14 +40,17 @@ def install_file_drop(widget, on_files, capture: bool = False) -> Gtk.DropTarget
 
     Calls `on_files(list_of_Gio_File)` once a drop's files have been read.
 
-    Reads the drag's `text/uri-list` rather than letting GdkFileList pick the
-    `application/vnd.portal.filetransfer` representation: under a flatpak that
-    portal path fails with "Invalid parent directory" for drags from a
-    non-sandboxed source, while uri-list carries real file:// paths the app can
-    already read via --filesystem=home. The read is async (and the stream is
-    spliced async) because a synchronous read would block the main loop
-    mid-transfer and deadlock. `capture=True` runs in the capture phase so the
-    editor claims image drops before GtkSourceView pastes the path in as text.
+    Prefers the `application/vnd.portal.filetransfer` representation when the
+    drag source offers it: the sandbox has no blanket filesystem access, so a
+    raw path from another app is unreadable, while the portal route hands the
+    files over through the document portal. `text/uri-list` stays as the
+    fallback — older portal stacks failed the transfer with "Invalid parent
+    directory" for drags from a non-sandboxed source, and unsandboxed builds
+    (deb, AppImage) can read raw paths anyway. The reads are async (and the
+    stream is spliced async) because a synchronous read would block the main
+    loop mid-transfer and deadlock. `capture=True` runs in the capture phase
+    so the editor claims image drops before GtkSourceView pastes the path in
+    as text.
     """
     formats = Gdk.ContentFormats.new_for_gtype(Gdk.FileList)
     target = Gtk.DropTargetAsync.new(formats, Gdk.DragAction.COPY)
@@ -83,7 +86,16 @@ def install_file_drop(widget, on_files, capture: bool = False) -> Gtk.DropTarget
         try:
             value = drop_obj.read_value_finish(res)
         except GLib.Error:
-            drop_obj.finish(Gdk.DragAction(0))
+            # The portal transfer can still fail (historically "Invalid
+            # parent directory" for drags from a non-sandboxed source).  The
+            # drop is still live until finish(), so retry as raw uri-list —
+            # readable whenever the app has direct access to the paths.
+            mimes = drop_obj.get_formats().get_mime_types() or []
+            if "text/uri-list" in mimes:
+                drop_obj.read_async(["text/uri-list"], GLib.PRIORITY_DEFAULT,
+                                    None, _uris_done, None)
+            else:
+                drop_obj.finish(Gdk.DragAction(0))
             return
         files = list(value.get_files()) if value is not None else []
         drop_obj.finish(Gdk.DragAction.COPY)
@@ -91,12 +103,13 @@ def install_file_drop(widget, on_files, capture: bool = False) -> Gtk.DropTarget
 
     def _on_drop(_t, drop_obj, _x, _y) -> bool:
         mimes = drop_obj.get_formats().get_mime_types() or []
-        if "text/uri-list" in mimes:
-            drop_obj.read_async(["text/uri-list"], GLib.PRIORITY_DEFAULT, None,
-                                _uris_done, None)
-        else:
+        if "application/vnd.portal.filetransfer" in mimes or \
+                "text/uri-list" not in mimes:
             drop_obj.read_value_async(Gdk.FileList, GLib.PRIORITY_DEFAULT, None,
                                       _value_done, None)
+        else:
+            drop_obj.read_async(["text/uri-list"], GLib.PRIORITY_DEFAULT, None,
+                                _uris_done, None)
         return True
 
     target.connect("drop", _on_drop)

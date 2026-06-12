@@ -179,6 +179,12 @@ def unpack(zip_path) -> Path:
     # Tolerate bundles that omitted the (possibly empty) asset dirs.
     (work_dir / "images").mkdir(exist_ok=True)
     (work_dir / "styles").mkdir(exist_ok=True)
+    # Tolerate a missing .marprc.yml the same way (a hand-made or third-party
+    # bundle): without `themeSet: styles` marp never registers the deck's
+    # themes, so font and theme choices silently stop applying.
+    marprc = work_dir / ".marprc.yml"
+    if not marprc.is_file():
+        marprc.write_text(_MARPRC, encoding="utf-8")
     return work_dir
 
 

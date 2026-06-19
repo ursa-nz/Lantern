@@ -1,0 +1,91 @@
+name: Bug report
+about: Report something in Lantern that does not work as it should
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please fill in what you can so the issue can be reproduced.
+  - type: input
+    id: version
+    attributes:
+      label: Lantern version
+      description: Shown in the About dialog, or the release you downloaded.
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install Lantern?
+      options:
+        - Flatpak
+        - Debian or Ubuntu package (.deb)
+        - AppImage
+        - Built from source
+        - Other (note below)
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution and version
+      placeholder: e.g. Fedora 42, Ubuntu 24.04, Debian 13
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      options:
+        - x86_64 (amd64)
+        - aarch64 (arm64)
+        - Other (note below)
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop environment and version
+      placeholder: e.g. GNOME 48, KDE Plasma 6.3
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order. Note whether it involves editing, the live preview, presenting, or export.
+      placeholder: |
+        1. Open Lantern
+        2. Open a deck and edit a slide
+        3. Export to PowerPoint
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal output or logs
+      description: Run `lantern` from a terminal (or `flatpak run nz.ursa.Lantern`) and paste anything printed. This will be formatted as a code block automatically.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true

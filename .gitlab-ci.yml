@@ -61,7 +61,12 @@ flatpak-build:
     when: script_failure
   before_script:
     - apt-get update -qq
-    - apt-get install -y --no-install-recommends flatpak flatpak-builder curl ca-certificates >/dev/null
+    # librsvg2-common registers the SVG gdk-pixbuf loader. flatpak-builder runs
+    # `appstreamcli compose` on the host to generate AppStream metadata, and that
+    # step rasterises the app's scalable SVG icon; without the loader the read
+    # fails (file-read-error) and the whole build fails. A bare Debian image lacks
+    # it, where GitHub's runner image ships it.
+    - apt-get install -y --no-install-recommends flatpak flatpak-builder librsvg2-common curl ca-certificates >/dev/null
   script:
     - ./scripts/build-flatpak.sh
     # build-flatpak.sh always writes the un-arched name; tag it with the arch so

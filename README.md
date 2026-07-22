@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="data/icons/hicolor/scalable/apps/nz.ursa.Lantern.svg" width="192" alt="Lantern">
-</p>
-
-<h1 align="center">Lantern</h1>
+# Lantern
 
 A simple GUI for authoring [Marp](https://marp.app/) slides on GNOME. Edit on the left, see the slide render on the right. Present from the same window, or in full screen. The whole deck saves as one (zip) file.
 
@@ -36,20 +32,6 @@ flatpak install ursa nz.ursa.Lantern
 flatpak run nz.ursa.Lantern
 ```
 
-(You need `flatpak` itself installed: `sudo apt install flatpak` on Debian/Ubuntu, similar for other distros.)
-
-**Debian / Ubuntu** (`.deb`). One package installs on both Intel and ARM:
-
-```
-sudo install -d -m 0755 /etc/apt/keyrings
-sudo curl -fsSL https://software.ursa.nz/ursa-software.asc -o /etc/apt/keyrings/ursa-software.asc
-sudo curl -fsSL https://software.ursa.nz/ursa.sources -o /etc/apt/sources.list.d/ursa.sources
-sudo apt update
-sudo apt install lantern
-```
-
-apt pulls the GTK and WebKit it needs. PowerPoint export uses `pandoc`, a recommended dependency apt installs unless you opt out. Then launch Lantern from the app grid, or run `lantern`.
-
 **AppImage** (any recent distro, nothing to install). Grab `Lantern-x86_64.AppImage` (or `-aarch64`):
 
 ```
@@ -57,7 +39,7 @@ chmod +x ~/Downloads/Lantern-x86_64.AppImage
 ~/Downloads/Lantern-x86_64.AppImage
 ```
 
-It carries its own GTK, WebKit, Python, Node, marp, and pandoc, so it runs on a machine that has none of them. It's built on Ubuntu 24.04, so it needs that vintage of glibc (2.39) or newer.
+It carries its own GTK, WebKit, Python, Node, marp, and pandoc, so it runs on a machine that has none of them. It's built on a Ubuntu 24.04 image, so it needs that vintage of glibc (2.39) or newer.
 
 ## Build it yourself
 
@@ -68,14 +50,6 @@ sudo apt install flatpak-builder
 ./scripts/build-flatpak.sh
 flatpak install --user build/nz.ursa.Lantern.flatpak
 flatpak run nz.ursa.Lantern
-```
-
-**Debian package (`.deb`).** Architecture-independent. The one package installs on amd64 and arm64.
-
-```
-sudo apt install dpkg-dev nodejs npm
-./scripts/build-deb.sh
-sudo apt install ./build/lantern_1.1.1_all.deb
 ```
 
 **AppImage (self-contained).** Bundles the whole GTK/WebKit/Python/Node stack, so it runs anywhere. Build it on the oldest distro you want to support. The releases use Ubuntu 24.04, the first with WebKitGTK 6.0.

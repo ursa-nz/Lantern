@@ -79,10 +79,9 @@ flatpak-build:
           --upload-file "build/${APP_ID}-x86_64.flatpak" \
           "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE}/${CI_COMMIT_TAG}/${APP_ID}-x86_64.flatpak"
       fi
-  artifacts:
-    paths:
-      - "build/${APP_ID}-x86_64.flatpak"
-    expire_in: 30 days
+  # No job artifact: the bundle is hundreds of MB, over the instance's artifact
+  # size limit (a 413 on upload). On a tag it goes to the generic package
+  # registry above, which the release links; a manual run just proves the build.
 
 # --- AppImage (best-effort extra). ---
 # Built on Ubuntu 24.04, the oldest distro with webkitgtk-6.0, which sets the
@@ -127,10 +126,9 @@ appimage-build:
           --upload-file "build/Lantern-x86_64.AppImage" \
           "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE}/${CI_COMMIT_TAG}/Lantern-x86_64.AppImage"
       fi
-  artifacts:
-    paths:
-      - "build/Lantern-x86_64.AppImage"
-    expire_in: 30 days
+  # No job artifact, for the same reason as the flatpak: the AppImage is over the
+  # instance's artifact size limit. On a tag it lands in the generic package
+  # registry above; a manual run just proves the build.
 
 # --- Cut the release and link the artifacts from the package registry. ---
 # needs only the flatpak, so a failed AppImage never holds the release back; the
@@ -142,9 +140,13 @@ release:
   tags: [podman]
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   needs:
+    # Ordering only; the build jobs export no artifacts, and this job links assets
+    # from the package registry, so there is nothing to download.
     - job: flatpak-build
+      artifacts: false
     - job: appimage-build
       optional: true
+      artifacts: false
   rules:
     - if: '$CI_COMMIT_TAG'
   before_script:

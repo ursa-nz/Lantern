@@ -7,9 +7,9 @@ set -euo pipefail
 
 APP_ID="nz.ursa.Lantern"
 MANIFEST="flatpak/${APP_ID}.yaml"
-RUNTIME_VERSION="49"
+RUNTIME_VERSION="50"
 NODE_EXT="org.freedesktop.Sdk.Extension.node22"
-NODE_BRANCH="25.08"     # GNOME 49 is based on freedesktop 25.08
+NODE_BRANCH="25.08"     # GNOME 50 is still based on freedesktop 25.08
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 cd "${HERE}"

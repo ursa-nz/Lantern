@@ -72,15 +72,26 @@ if [ ! -e /dev/fuse ]; then
 fi
 
 log "Running flatpak-builder (work dir: ${WORK_ROOT})..."
+# No --repo here: the export is a separate step below so it can pass
+# --disable-sandbox (flatpak-builder does not forward that flag).
 flatpak-builder \
     --force-clean \
     --user \
     --install-deps-from=flathub \
     --state-dir="${WORK_ROOT}/.flatpak-builder" \
-    --repo="${REPO_DIR}" \
     "${rofiles_args[@]}" \
     "${BUILD_DIR}" \
     "${MANIFEST_ABS}"
+
+# Export the finished build into the OSTree repo. build-export validates the app
+# icon, and by default it does so inside a nested bwrap sandbox that has to
+# create a new user namespace — which the kernel refuses in an unprivileged
+# container runner ("bwrap: Creating new namespace failed"). That sandbox exists
+# to contain a malicious third-party SVG; this icon is our own and trusted, so
+# --disable-sandbox validates it directly. This keeps CI's flatpak runner
+# unprivileged, and is a no-op on a desktop where the sandbox would have worked.
+log "Exporting to repo (icon validator unsandboxed)..."
+flatpak build-export --disable-sandbox "${REPO_DIR}" "${BUILD_DIR}"
 
 log "Exporting single-file bundle..."
 flatpak build-bundle "${REPO_DIR}" "${BUNDLE}" "${APP_ID}"

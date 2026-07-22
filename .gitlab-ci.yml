@@ -3,18 +3,23 @@
 #
 # Build and release Lantern on Katara's GitLab (lab.ursa.nz).
 #
-# The runner there is a single x86_64 docker executor pointed at the box's
-# rootless Podman socket, and it is unprivileged by design (see katara
-# silos/gitlab-runner). That shapes this pipeline:
+# Two x86_64 docker executors on the box's rootless Podman socket (see katara
+# silos/gitlab-runner). Most jobs run on the general `podman` runner, which is
+# unprivileged by design. The flatpak build runs on the dedicated `flatpak`
+# runner, which is the same rootless setup with one relaxation: it unmasks /proc
+# (unmask=all, not privileged, no added capabilities or devices). That shapes
+# this pipeline:
 #
 #   * One arch. The box is x86_64, so the flatpak and the AppImage are built for
-#     x86_64 only. There is no native arm64 here and QEMU would need the
-#     privilege the runner withholds.
-#   * No /dev/fuse and no privilege. flatpak-builder still works because bwrap
-#     creates an unprivileged user namespace, which Fedora CoreOS rootless
-#     Podman allows, and build-flatpak.sh drops rofiles-fuse when /dev/fuse is
-#     absent. build-appimage.sh forces APPIMAGE_EXTRACT_AND_RUN, so appimagetool
+#     x86_64 only. There is no native arm64 here and QEMU would need privilege
+#     neither runner grants.
+#   * No /dev/fuse. build-flatpak.sh drops rofiles-fuse when /dev/fuse is absent,
+#     and build-appimage.sh forces APPIMAGE_EXTRACT_AND_RUN, so appimagetool
 #     extracts rather than mounting a FUSE image.
+#   * Why the flatpak runner unmasks /proc. flatpak-builder sandboxes each module
+#     build with bwrap, which mounts a private /proc. Podman masks /proc in a job
+#     container by default, and the kernel then refuses bwrap's fresh proc mount.
+#     Unmasking /proc is the minimum that lets the build run without privilege.
 #
 # The flatpak is the artifact that matters; the AppImage is a best-effort extra,
 # so its job is allow_failure and the release links it only when it built.
@@ -40,15 +45,16 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "api"'
 
 # --- Flatpak bundle (the release artifact). ---
-# Runs on the podman runner. flatpak-builder pulls the GNOME 49 Platform/Sdk and
-# the node22 extension from Flathub, builds the bundle, and build-flatpak.sh
-# writes build/nz.ursa.Lantern.flatpak. The heavy Flathub pull and build can
-# flake on a transient network hiccup, so retry the job once on script failure.
-# On a tag the bundle is uploaded to the generic package registry for the
-# release job to link; the artifact is kept either way.
+# Runs on the `flatpak` runner (the one that unmasks /proc; see the header).
+# flatpak-builder pulls the GNOME 49 Platform/Sdk and the node22 extension from
+# Flathub, builds the bundle, and build-flatpak.sh writes
+# build/nz.ursa.Lantern.flatpak. The heavy Flathub pull and build can flake on a
+# transient network hiccup, so retry the job once on script failure. On a tag the
+# bundle is uploaded to the generic package registry for the release job to link;
+# the artifact is kept either way.
 flatpak-build:
   stage: build
-  tags: [podman]
+  tags: [flatpak]
   image: debian:trixie-slim
   retry:
     max: 1
@@ -78,8 +84,9 @@ flatpak-build:
 # image's glibc floor. The gir1.2-* packages pull the matching runtime libs and
 # the *-bin packages the gtk plugin's tools; librsvg2-common is the SVG loader
 # for the icon, and libgtk-4-dev gives the gtk4.pc the plugin resolves the
-# module dir from. allow_failure so a wobble here never blocks the flatpak
-# release.
+# module dir from. dpkg-dev supplies dpkg-architecture, which the gtk plugin
+# calls and a bare Ubuntu image lacks (GitHub's runner image ships it).
+# allow_failure so a wobble here never blocks the flatpak release.
 appimage-build:
   stage: build
   tags: [podman]
@@ -98,7 +105,7 @@ appimage-build:
     - |
       apt-get install -y --no-install-recommends \
         nodejs \
-        python3 python3-gi pkg-config libgtk-4-dev \
+        python3 python3-gi pkg-config libgtk-4-dev dpkg-dev \
         gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gtksource-5 gir1.2-webkit-6.0 \
         libglib2.0-bin libgtk-3-bin librsvg2-common \
         pandoc desktop-file-utils file >/dev/null

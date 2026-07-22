@@ -1,0 +1,192 @@
+# SPDX-FileCopyrightText: 2026 ursa.nz <code@ursa.nz>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Build and release Lantern on Katara's GitLab (lab.ursa.nz).
+#
+# The runner there is a single x86_64 docker executor pointed at the box's
+# rootless Podman socket, and it is unprivileged by design (see katara
+# silos/gitlab-runner). That shapes this pipeline:
+#
+#   * One arch. The box is x86_64, so the flatpak and the AppImage are built for
+#     x86_64 only. There is no native arm64 here and QEMU would need the
+#     privilege the runner withholds.
+#   * No /dev/fuse and no privilege. flatpak-builder still works because bwrap
+#     creates an unprivileged user namespace, which Fedora CoreOS rootless
+#     Podman allows, and build-flatpak.sh drops rofiles-fuse when /dev/fuse is
+#     absent. build-appimage.sh forces APPIMAGE_EXTRACT_AND_RUN, so appimagetool
+#     extracts rather than mounting a FUSE image.
+#
+# The flatpak is the artifact that matters; the AppImage is a best-effort extra,
+# so its job is allow_failure and the release links it only when it built.
+#
+# A pushed version tag (v1.2.3) builds and publishes a release. A manual web
+# run builds the same artifacts and uploads them to the generic package
+# registry without cutting a release. Failures open an issue on ursa.nz/ops.
+
+stages: [build, release, report]
+
+variables:
+  APP_ID: "nz.ursa.Lantern"
+  PACKAGE: "lantern"                       # generic package registry name
+
+# Only ever run for a tag or a manual dispatch; ordinary branch pushes build
+# nothing. This mirrors the GitHub workflows' `on: push tags + workflow_dispatch`.
+# A manual dispatch is the UI "Run pipeline" button (web) or an API call (api),
+# and on a branch it builds the artifacts without cutting a release.
+workflow:
+  rules:
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "api"'
+
+# --- Flatpak bundle (the release artifact). ---
+# Runs on the podman runner. flatpak-builder pulls the GNOME 49 Platform/Sdk and
+# the node22 extension from Flathub, builds the bundle, and build-flatpak.sh
+# writes build/nz.ursa.Lantern.flatpak. The heavy Flathub pull and build can
+# flake on a transient network hiccup, so retry the job once on script failure.
+# On a tag the bundle is uploaded to the generic package registry for the
+# release job to link; the artifact is kept either way.
+flatpak-build:
+  stage: build
+  tags: [podman]
+  image: debian:trixie-slim
+  retry:
+    max: 1
+    when: script_failure
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends flatpak flatpak-builder curl ca-certificates >/dev/null
+  script:
+    - ./scripts/build-flatpak.sh
+    # build-flatpak.sh always writes the un-arched name; tag it with the arch so
+    # the asset says what it is.
+    - mv "build/${APP_ID}.flatpak" "build/${APP_ID}-x86_64.flatpak"
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        curl --fail --silent --show-error \
+          --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+          --upload-file "build/${APP_ID}-x86_64.flatpak" \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE}/${CI_COMMIT_TAG}/${APP_ID}-x86_64.flatpak"
+      fi
+  artifacts:
+    paths:
+      - "build/${APP_ID}-x86_64.flatpak"
+    expire_in: 30 days
+
+# --- AppImage (best-effort extra). ---
+# Built on Ubuntu 24.04, the oldest distro with webkitgtk-6.0, which sets the
+# image's glibc floor. The gir1.2-* packages pull the matching runtime libs and
+# the *-bin packages the gtk plugin's tools; librsvg2-common is the SVG loader
+# for the icon, and libgtk-4-dev gives the gtk4.pc the plugin resolves the
+# module dir from. allow_failure so a wobble here never blocks the flatpak
+# release.
+appimage-build:
+  stage: build
+  tags: [podman]
+  image: ubuntu:24.04
+  allow_failure: true
+  retry:
+    max: 1
+    when: script_failure
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends curl ca-certificates >/dev/null
+    # The AppImage bundles whatever `node` is on PATH; Ubuntu 24.04 ships 18, so
+    # pull node 22 from NodeSource to match the flatpak's node22 and the other
+    # release pipelines.
+    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
+    - |
+      apt-get install -y --no-install-recommends \
+        nodejs \
+        python3 python3-gi pkg-config libgtk-4-dev \
+        gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gtksource-5 gir1.2-webkit-6.0 \
+        libglib2.0-bin libgtk-3-bin librsvg2-common \
+        pandoc desktop-file-utils file >/dev/null
+    - apt-get install -y --no-install-recommends libgdk-pixbuf2.0-bin >/dev/null
+        || apt-get install -y --no-install-recommends libgdk-pixbuf-2.0-bin >/dev/null
+  script:
+    - version=""
+    - '[ -n "$CI_COMMIT_TAG" ] && version="${CI_COMMIT_TAG#v}"'
+    - ./scripts/build-appimage.sh "$version"
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        curl --fail --silent --show-error \
+          --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+          --upload-file "build/Lantern-x86_64.AppImage" \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE}/${CI_COMMIT_TAG}/Lantern-x86_64.AppImage"
+      fi
+  artifacts:
+    paths:
+      - "build/Lantern-x86_64.AppImage"
+    expire_in: 30 days
+
+# --- Cut the release and link the artifacts from the package registry. ---
+# needs only the flatpak, so a failed AppImage never holds the release back; the
+# AppImage link is added only if that upload actually landed, checked with a HEAD
+# against the package registry, so the release carries no dead link. The flatpak
+# link is always present because the flatpak job gates this one.
+release:
+  stage: release
+  tags: [podman]
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - job: flatpak-build
+    - job: appimage-build
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_TAG'
+  before_script:
+    - apk add --no-cache curl >/dev/null
+  script:
+    - base="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE}/${CI_COMMIT_TAG}"
+    - flatpak_url="${base}/${APP_ID}-x86_64.flatpak"
+    - appimage_url="${base}/Lantern-x86_64.AppImage"
+    - set -- --assets-link "{\"name\":\"${APP_ID}-x86_64.flatpak\",\"url\":\"${flatpak_url}\",\"link_type\":\"package\"}"
+    - |
+      if curl --fail --silent --head --header "JOB-TOKEN: $CI_JOB_TOKEN" "$appimage_url" >/dev/null 2>&1; then
+        set -- "$@" --assets-link "{\"name\":\"Lantern-x86_64.AppImage\",\"url\":\"${appimage_url}\",\"link_type\":\"package\"}"
+      fi
+    - |
+      release-cli create \
+        --tag-name "$CI_COMMIT_TAG" \
+        --name "Lantern $CI_COMMIT_TAG" \
+        --description "Lantern $CI_COMMIT_TAG. Flatpak bundle for x86_64; AppImage where built. Install the flatpak with: flatpak install --user ./${APP_ID}-x86_64.flatpak" \
+        "$@"
+
+# --- Open or update a deduplicated ops issue when the pipeline fails. ---
+# The house failure template every ursa.nz pipeline carries (see katara
+# docs/notices.md). One open issue per fingerprint on ursa.nz/ops; a recurrence
+# is a comment, not a new issue. It prefers a stored OPS_TOKEN (a project access
+# token scoped to ursa.nz/ops with the api scope) and falls back to CI_JOB_TOKEN
+# where the instance lets a job token write issues. Email is the floor if both
+# the API calls fail.
+ops-issue-on-failure:
+  stage: report
+  tags: [podman]
+  image: debian:bookworm-slim
+  variables:
+    OPS_API: "$CI_API_V4_URL"
+    OPS_PROJECT: "ursa.nz/ops"
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: on_failure
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: on_failure
+  script:
+    - apt-get update -qq && apt-get install -y --no-install-recommends curl jq ca-certificates >/dev/null
+    - |
+      token="${OPS_TOKEN:-$CI_JOB_TOKEN}"
+      proj="${OPS_PROJECT//\//%2F}"
+      fp="ci-${CI_PROJECT_PATH}"
+      body="Pipeline ${CI_PIPELINE_ID} failed on ${CI_COMMIT_REF_NAME} (${CI_COMMIT_SHORT_SHA}). ${CI_PIPELINE_URL}"
+      iid="$(curl -fsS -H "PRIVATE-TOKEN: $token" -G "$OPS_API/projects/$proj/issues" \
+        --data-urlencode "state=opened" --data-urlencode "labels=fp::$fp" 2>/dev/null | jq -r '.[0].iid // empty')"
+      if [ -n "$iid" ]; then
+        curl -fsS -H "PRIVATE-TOKEN: $token" --request POST "$OPS_API/projects/$proj/issues/$iid/notes" \
+          --data-urlencode "body=Recurred. $body" >/dev/null && echo "commented on #$iid" || echo "ops comment failed (email floor stands)"
+      else
+        curl -fsS -H "PRIVATE-TOKEN: $token" --request POST "$OPS_API/projects/$proj/issues" \
+          --data-urlencode "title=[ci] pipeline failed: ${CI_PROJECT_PATH}" \
+          --data-urlencode "labels=lantern,ci,fp::$fp,severity::critical" \
+          --data-urlencode "description=$body" >/dev/null && echo "opened an ops issue" || echo "ops issue failed (email floor stands)"
+      fi

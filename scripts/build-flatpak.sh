@@ -34,12 +34,14 @@ have flatpak         || err "flatpak missing. Install: sudo apt install flatpak"
 have flatpak-builder || err "flatpak-builder missing. Install: sudo apt install flatpak-builder"
 
 # ---------- Flathub remote ----------
+# Ensure flathub at USER scope. Every install below is --user, and a --user
+# install cannot resolve a system-scope remote, so a machine that only has
+# flathub at system scope fails with "No remote refs found for flathub". Add it
+# whenever the user scope lacks it, regardless of a system remote.
 if ! flatpak remotes --user --columns=name | grep -qx flathub; then
-    if ! flatpak remotes --columns=name | grep -qx flathub; then
-        log "Adding flathub remote (user scope)..."
-        flatpak remote-add --user --if-not-exists flathub \
-            https://flathub.org/repo/flathub.flatpakrepo
-    fi
+    log "Adding flathub remote (user scope)..."
+    flatpak remote-add --user --if-not-exists flathub \
+        https://flathub.org/repo/flathub.flatpakrepo
 fi
 
 # ---------- Runtime + SDK ----------

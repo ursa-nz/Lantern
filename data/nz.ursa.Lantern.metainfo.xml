@@ -91,10 +91,11 @@
   <releases>
     <release version="1.1.1" date="2026-07-22">
       <description>
-        <p>A maintenance release. Refreshed dependencies and a newer runtime.</p>
+        <p>A maintenance release. The tools that render and export your slides move up to their current versions.</p>
         <ul>
-          <li>The Flatpak now builds on the GNOME 50 runtime, with a newer WebKitGTK behind the preview.</li>
-          <li>Updated the bundled Marp and pandoc.</li>
+          <li>The live preview now runs on a newer WebKitGTK, the engine web browsers use, so slides render on an up-to-date engine and pick up its fixes.</li>
+          <li>Marp, which turns your Markdown into slides, updates to its current release.</li>
+          <li>PowerPoint export uses a newer pandoc.</li>
         </ul>
       </description>
     </release>

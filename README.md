@@ -21,12 +21,12 @@ Sincere thanks to:
 - [pandoc](https://pandoc.org/),
 - [Node.js](https://nodejs.org/),
 - [Flatpak](https://flatpak.org/),
-- [IBM Plex Mono](https://www.ibm.com/plex/) — bundled under the [SIL OFL 1.1](data/fonts/IBMPlexMono/LICENSE.txt) for the editor typography, and
+- [IBM Plex Mono](https://www.ibm.com/plex/) (bundled under the [SIL OFL 1.1](data/fonts/IBMPlexMono/LICENSE.txt) for the editor typography), and
 - the Lantern icon, adapted (with light modifications) from an illustration by [leedanii on Unsplash](https://unsplash.com/@leedanii/illustrations).
 
 ## Just want to run it
 
-Each tagged release ships ready-to-install bundles on the [latest release](https://github.com/ursa-nz/Lantern/releases/latest). Pick whichever suits your system.
+Each tagged release ships ready-to-install bundles on the [latest release](https://lab.ursa.nz/ursa.nz/Lantern/-/releases/permalink/latest). Pick whichever suits your system.
 
 **Flatpak** (most distros). Grab `nz.ursa.Lantern.flatpak`, then:
 
@@ -70,15 +70,15 @@ flatpak install --user build/nz.ursa.Lantern.flatpak
 flatpak run nz.ursa.Lantern
 ```
 
-**Debian package (`.deb`).** Architecture-independent — the one package installs on amd64 and arm64.
+**Debian package (`.deb`).** Architecture-independent. The one package installs on amd64 and arm64.
 
 ```
 sudo apt install dpkg-dev nodejs npm
 ./scripts/build-deb.sh
-sudo apt install ./build/lantern_1.1.0_all.deb
+sudo apt install ./build/lantern_1.1.1_all.deb
 ```
 
-**AppImage (self-contained).** Bundles the whole GTK/WebKit/Python/Node stack, so it runs anywhere. Build it on the oldest distro you want to support — the releases use Ubuntu 24.04, the first with WebKitGTK 6.0.
+**AppImage (self-contained).** Bundles the whole GTK/WebKit/Python/Node stack, so it runs anywhere. Build it on the oldest distro you want to support. The releases use Ubuntu 24.04, the first with WebKitGTK 6.0.
 
 ```
 sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
@@ -128,6 +128,6 @@ scripts/          install-local, build-flatpak, build-deb, build-appimage, stage
 
 It all works. Create a deck, open one, or import a `.md`. Edit with a live preview that follows your cursor, and autosave keeps it current. The whole deck saves as one `.lantern` file. Drag in images and fonts with a placement dialog. Pick a theme and edit its CSS. Set fonts for the body, headings, and code. Name a deck and reopen recent ones. Present in a window or full screen, and export to HTML, PDF, and PPTX.
 
-## License
+## Licence
 
 Copyright © 2026 ursa.nz. Released under the GNU General Public License, version 3.0 or later. See `LICENSE` for the full text.

@@ -38,19 +38,19 @@
   <screenshots>
     <screenshot type="default">
       <caption>Edit Markdown on the left, watch the slide render on the right</caption>
-      <image type="source" width="2500" height="1620">https://forge.ursa.nz/ursa-nz/Lantern/raw/branch/main/data/screenshots/editor-preview.png</image>
+      <image type="source" width="2500" height="1620">https://lab.ursa.nz/ursa.nz/Lantern/-/raw/main/data/screenshots/editor-preview.png</image>
     </screenshot>
     <screenshot>
       <caption>Start a new presentation or open an existing deck</caption>
-      <image type="source" width="2500" height="1620">https://forge.ursa.nz/ursa-nz/Lantern/raw/branch/main/data/screenshots/welcome.png</image>
+      <image type="source" width="2500" height="1620">https://lab.ursa.nz/ursa.nz/Lantern/-/raw/main/data/screenshots/welcome.png</image>
     </screenshot>
     <screenshot>
       <caption>Pick a theme, edit its CSS, and add images and fonts in Resources</caption>
-      <image type="source" width="860" height="1220">https://forge.ursa.nz/ursa-nz/Lantern/raw/branch/main/data/screenshots/resources.png</image>
+      <image type="source" width="860" height="1220">https://lab.ursa.nz/ursa.nz/Lantern/-/raw/main/data/screenshots/resources.png</image>
     </screenshot>
     <screenshot>
       <caption>Set a default author name and tune the preview in Preferences</caption>
-      <image type="source" width="2500" height="1620">https://forge.ursa.nz/ursa-nz/Lantern/raw/branch/main/data/screenshots/preferences.png</image>
+      <image type="source" width="2500" height="1620">https://lab.ursa.nz/ursa.nz/Lantern/-/raw/main/data/screenshots/preferences.png</image>
     </screenshot>
   </screenshots>
 
@@ -70,8 +70,8 @@
     <keyword>deck</keyword>
   </keywords>
 
-  <url type="homepage">https://forge.ursa.nz</url>
-  <url type="bugtracker">https://ursa.nz/contact/</url>
+  <url type="homepage">https://lab.ursa.nz/ursa.nz/Lantern</url>
+  <url type="bugtracker">https://lab.ursa.nz/ursa.nz/Lantern/-/issues</url>
 
   <content_rating type="oars-1.1"/>
 
@@ -89,6 +89,15 @@
   </branding>
 
   <releases>
+    <release version="1.1.1" date="2026-07-22">
+      <description>
+        <p>A maintenance release. Refreshed dependencies and a newer runtime.</p>
+        <ul>
+          <li>The Flatpak now builds on the GNOME 50 runtime, with a newer WebKitGTK behind the preview.</li>
+          <li>Updated the bundled Marp and pandoc.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-06-11">
       <description>
         <p>

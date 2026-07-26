@@ -18,16 +18,17 @@ cd "${HERE}"
 # source tree lives on a cloud-synced mount (e.g. kDrive, Dropbox) that
 # blocks symlinks, do the build under ~/.cache and copy out only the
 # final bundle.
-WORK_ROOT="${HOME}/.cache/lantern-build"
+#
+# LANTERN_BUILD_ROOT moves the whole lot elsewhere, which CI uses to put it on a
+# directory the runner mounts from the host so the downloaded module sources
+# survive the job container. It is one root rather than a path per directory
+# because flatpak-builder hardlinks between its state dir and the build dir and
+# refuses to run when the two are on different filesystems.
+WORK_ROOT="${LANTERN_BUILD_ROOT:-${HOME}/.cache/lantern-build}"
 BUILD_DIR="${WORK_ROOT}/builder"
 REPO_DIR="${WORK_ROOT}/repo"
-
-# Where flatpak-builder keeps downloaded module sources and its ccache. On a
-# desktop this lives under the work root and persists between builds on its own.
-# A CI job sets BUILDER_STATE_DIR to a path the runner mounts from the host, so
-# the cache outlives the container the job runs in.
-STATE_DIR="${BUILDER_STATE_DIR:-${WORK_ROOT}/.flatpak-builder}"
-mkdir -p "${WORK_ROOT}" "${STATE_DIR}"
+STATE_DIR="${WORK_ROOT}/.flatpak-builder"
+mkdir -p "${WORK_ROOT}"
 
 c_blue='\033[1;34m'; c_yellow='\033[1;33m'; c_red='\033[1;31m'; c_reset='\033[0m'
 log()  { printf "${c_blue}==>${c_reset} %s\n" "$*"; }

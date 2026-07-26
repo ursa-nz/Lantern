@@ -21,7 +21,13 @@ cd "${HERE}"
 WORK_ROOT="${HOME}/.cache/lantern-build"
 BUILD_DIR="${WORK_ROOT}/builder"
 REPO_DIR="${WORK_ROOT}/repo"
-mkdir -p "${WORK_ROOT}"
+
+# Where flatpak-builder keeps downloaded module sources and its ccache. On a
+# desktop this lives under the work root and persists between builds on its own.
+# A CI job sets BUILDER_STATE_DIR to a path the runner mounts from the host, so
+# the cache outlives the container the job runs in.
+STATE_DIR="${BUILDER_STATE_DIR:-${WORK_ROOT}/.flatpak-builder}"
+mkdir -p "${WORK_ROOT}" "${STATE_DIR}"
 
 c_blue='\033[1;34m'; c_yellow='\033[1;33m'; c_red='\033[1;31m'; c_reset='\033[0m'
 log()  { printf "${c_blue}==>${c_reset} %s\n" "$*"; }
@@ -45,6 +51,10 @@ if ! flatpak remotes --user --columns=name | grep -qx flathub; then
 fi
 
 # ---------- Runtime + SDK ----------
+# These are the expensive part, about a gigabyte across the three refs. Every
+# call below is user scope, so libflatpak resolves them under FLATPAK_USER_DIR
+# when it is set and under ~/.local/share/flatpak when it is not. CI sets it to a
+# host path the runner mounts, which is what keeps the pull to the first build.
 ensure_installed() {
     local ref="$1"
     if ! flatpak info "${ref}" >/dev/null 2>&1; then
@@ -80,7 +90,7 @@ flatpak-builder \
     --force-clean \
     --user \
     --install-deps-from=flathub \
-    --state-dir="${WORK_ROOT}/.flatpak-builder" \
+    --state-dir="${STATE_DIR}" \
     "${rofiles_args[@]}" \
     "${BUILD_DIR}" \
     "${MANIFEST_ABS}"

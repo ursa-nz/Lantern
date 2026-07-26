@@ -59,6 +59,14 @@ flatpak-build:
   retry:
     max: 1
     when: script_failure
+  variables:
+    # Both are host directories the flatpak runner mounts into every job it runs
+    # (see katara silos/gitlab-runner-flatpak/config.toml.example). Without them
+    # the runtimes and the build state land inside the container and go with it,
+    # so each build re-pulls about a gigabyte from Flathub. The state dir is keyed
+    # by project so two repos sharing the runner cannot collide.
+    FLATPAK_USER_DIR: "/flatpak"
+    BUILDER_STATE_DIR: "/builder-cache/$CI_PROJECT_PATH_SLUG"
   before_script:
     - apt-get update -qq
     # librsvg2-common registers the SVG gdk-pixbuf loader. flatpak-builder runs

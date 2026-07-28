@@ -13,9 +13,9 @@
 #   * One arch. The box is x86_64, so the flatpak and the AppImage are built for
 #     x86_64 only. There is no native arm64 here and QEMU would need privilege
 #     neither runner grants.
-#   * No /dev/fuse. build-flatpak.sh drops rofiles-fuse when /dev/fuse is absent,
-#     and build-appimage.sh forces APPIMAGE_EXTRACT_AND_RUN, so appimagetool
-#     extracts rather than mounting a FUSE image.
+#   * No /dev/fuse. The shared template builds with --disable-rofiles-fuse, and
+#     build-appimage.sh forces APPIMAGE_EXTRACT_AND_RUN, so appimagetool extracts
+#     rather than mounting a FUSE image.
 #   * Why the flatpak runner unmasks /proc. flatpak-builder sandboxes each module
 #     build with bwrap, which mounts a private /proc. Podman masks /proc in a job
 #     container by default, and the kernel then refuses bwrap's fresh proc mount.
@@ -28,7 +28,10 @@
 # run builds the same artifacts and uploads them to the generic package
 # registry without cutting a release. Failures open an issue on ursa.nz/ops.
 
-stages: [build, release, report]
+# test and deploy are the template's own stages, for its lint and release jobs.
+# GitLab validates every included job's stage even when its rules never fire, so
+# both have to exist here whether or not they run.
+stages: [build, test, deploy, release, report]
 
 variables:
   APP_ID: "nz.ursa.Lantern"
@@ -45,64 +48,29 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "api"'
 
 # --- Flatpak bundle (the release artifact). ---
-# Runs on the `flatpak` runner (the one that unmasks /proc; see the header).
-# flatpak-builder pulls the GNOME 49 Platform/Sdk and the node22 extension from
-# Flathub, builds the bundle, and build-flatpak.sh writes
-# build/nz.ursa.Lantern.flatpak. The heavy Flathub pull and build can flake on a
-# transient network hiccup, so retry the job once on script failure. On a tag the
-# bundle is uploaded to the generic package registry for the release job to link;
-# the artifact is kept either way.
-flatpak-build:
-  stage: build
-  tags: [flatpak]
-  image: debian:trixie-slim
-  retry:
-    max: 1
-    when: script_failure
-  variables:
-    # Both point into host directories the flatpak runner mounts on every job it
-    # runs (see katara silos/gitlab-runner-flatpak/config.toml.example). Without
-    # them the runtimes and the build state land inside the container and go with
-    # it, so each build re-pulls about a gigabyte from Flathub.
-    #
-    # The build root is keyed by project so two repos sharing the runner cannot
-    # collide. It carries the build dir and the OSTree repo as well as the state
-    # dir, because flatpak-builder hardlinks between the state and build dirs and
-    # refuses to run when they sit on different filesystems.
-    FLATPAK_USER_DIR: "/flatpak"
-    LANTERN_BUILD_ROOT: "/builder-cache/$CI_PROJECT_PATH_SLUG"
-  before_script:
-    - apt-get update -qq
-    # librsvg2-common registers the SVG gdk-pixbuf loader. flatpak-builder runs
-    # `appstreamcli compose` on the host to generate AppStream metadata, and that
-    # step rasterises the app's scalable SVG icon; without the loader the read
-    # fails (file-read-error) and the whole build fails. A bare Debian image lacks
-    # it, where GitHub's runner image ships it.
-    - apt-get install -y --no-install-recommends flatpak flatpak-builder librsvg2-common curl ca-certificates >/dev/null
-  script:
-    - ./scripts/build-flatpak.sh
-    # build-flatpak.sh always writes the un-arched name; tag it with the arch so
-    # the asset says what it is.
-    - mv "build/${APP_ID}.flatpak" "build/${APP_ID}-x86_64.flatpak"
-    - |
-      if [ -n "$CI_COMMIT_TAG" ]; then
-        curl --fail --silent --show-error \
-          --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-          --upload-file "build/${APP_ID}-x86_64.flatpak" \
-          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE}/${CI_COMMIT_TAG}/${APP_ID}-x86_64.flatpak"
-      fi
-  # No job artifact: the bundle is hundreds of MB, over the instance's artifact
-  # size limit (a 413 on upload). On a tag it goes to the generic package
-  # registry above, which the release links; a manual run just proves the build.
+# Built by the shared template, on the `flatpak` runner and the signed toolchain
+# image, so a fix to the build reaches this app the same way it reaches every
+# other one. The template already does what this repo's job used to do by hand:
+# the Flathub remote, the state and build dirs on the runner's cache mount, the
+# unsandboxed export, the bundle, and the upload to the package registry on a tag.
+#
+# scripts/build-flatpak.sh stays in the repo. It is what a contributor runs on a
+# laptop, and it builds the same manifest.
+include:
+  - project: ursa.nz/ci-templates
+    ref: main
+    file: /flatpak-build.yml
+    inputs:
+      app-id: nz.ursa.Lantern
+      manifest: flatpak/nz.ursa.Lantern.yaml
 
-# --- AppImage (best-effort extra). ---
-# Built on Ubuntu 24.04, the oldest distro with webkitgtk-6.0, which sets the
-# image's glibc floor. The gir1.2-* packages pull the matching runtime libs and
-# the *-bin packages the gtk plugin's tools; librsvg2-common is the SVG loader
-# for the icon, and libgtk-4-dev gives the gtk4.pc the plugin resolves the
-# module dir from. dpkg-dev supplies dpkg-architecture, which the gtk plugin
-# calls and a bare Ubuntu image lacks (GitHub's runner image ships it).
-# allow_failure so a wobble here never blocks the flatpak release.
+# The template cuts a release carrying the flatpak alone. Lantern ships an
+# AppImage beside it, so the release job below links both and this one stands down
+# rather than racing it for the same tag.
+flatpak-release:
+  rules:
+    - when: never
+
 appimage-build:
   stage: build
   tags: [podman]
@@ -165,7 +133,10 @@ release:
     - apk add --no-cache curl >/dev/null
   script:
     - base="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE}/${CI_COMMIT_TAG}"
-    - flatpak_url="${base}/${APP_ID}-x86_64.flatpak"
+    # The bundle lands under the shared `flatpak` package name, where the template
+    # puts every app's. The AppImage keeps this project's own name, since nothing
+    # else ships one.
+    - flatpak_url="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/flatpak/${CI_COMMIT_TAG}/${APP_ID}-x86_64.flatpak"
     - appimage_url="${base}/Lantern-x86_64.AppImage"
     - set -- --assets-link "{\"name\":\"${APP_ID}-x86_64.flatpak\",\"url\":\"${flatpak_url}\",\"link_type\":\"package\"}"
     - |

@@ -89,6 +89,15 @@
   </branding>
 
   <releases>
+    <release version="1.1.2" date="2026-08-30">
+      <description>
+        <p>A maintenance release. The tools that build and export your slides move up to their current versions.</p>
+        <ul>
+          <li>PowerPoint export uses pandoc 3.11.</li>
+          <li>Node.js, which runs Marp to turn your Markdown into slides, moves to version 24, its current long-term support release.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.1" date="2026-07-22">
       <description>
         <p>A maintenance release. The tools that render and export your slides move up to their current versions.</p>

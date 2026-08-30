@@ -3,12 +3,11 @@
 #
 # Output: build/Lantern-<arch>.AppImage
 #
-# Unlike the deb (which leans on the distro's GTK/WebKit), the AppImage bundles
-# the whole GUI stack — Python, PyGObject, GTK 4, libadwaita, GtkSourceView,
-# WebKitGTK 6.0 and their helpers — plus Node, marp-cli and pandoc, so it runs
-# on a host that has none of them installed. Build it on the OLDEST distro you
-# want to support (the CI uses Ubuntu 24.04, the first with webkitgtk-6.0); the
-# resulting glibc floor is the build host's.
+# The AppImage bundles the whole GUI stack — Python, PyGObject, GTK 4,
+# libadwaita, GtkSourceView, WebKitGTK 6.0 and their helpers — plus Node,
+# marp-cli and pandoc, so it runs on a host that has none of them installed.
+# Build it on the OLDEST distro you want to support (the CI uses Ubuntu 24.04,
+# the first with webkitgtk-6.0); the resulting glibc floor is the build host's.
 #
 # WebKitGTK 6.0 hardcodes the path to its helper processes and offers no env
 # override, so we binary-patch that path to /tmp/lantern-wk and have AppRun point

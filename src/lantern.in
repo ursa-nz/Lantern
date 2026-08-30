@@ -13,7 +13,7 @@ export PYTHONPATH="@SHAREDIR@${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Point the app at the marp bundled beside the sources, when one is there.
 # Every packaged layout drops marp-cli at @SHAREDIR@/node_modules/.bin/marp
-# (the local install, the deb, the flatpak's /app/share), so a single guarded
+# (the local install, the AppImage, the flatpak's /app/share), so a single guarded
 # export covers them all and find_marp_bin() picks it up first. Left unset when
 # absent, so a PATH-provided marp still resolves.
 _lantern_marp="@SHAREDIR@/node_modules/.bin/marp"

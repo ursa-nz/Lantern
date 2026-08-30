@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Stage the Lantern app tree into a destination root.
 #
-# Shared by build-deb.sh and build-appimage.sh so the two packages lay the app
-# out identically — the same launcher, Python package, bundled marp-cli, desktop
-# entry, metainfo, icon, MIME type, and fonts the flatpak ships.
+# Used by build-appimage.sh to lay the app out the way the flatpak does — the
+# same launcher, Python package, bundled marp-cli, desktop entry, metainfo,
+# icon, MIME type, and fonts.
 #
 # Usage:
 #   DESTDIR=<root> [PREFIX=/usr] [SHAREDIR=<prefix>/share/lantern] \
@@ -67,8 +67,8 @@ fi
 # in transitively by puppeteer's browser-downloader). marp runs on Node, which
 # uses those packages' pure-JS path and never loads the .bare binaries — they
 # only load under the unrelated "bare" runtime. Removing them keeps the tree
-# free of arch-specific objects (so the deb stays genuinely Architecture: all)
-# and trims a few megabytes. Verified: marp renders fine without them.
+# free of arch-specific objects and trims a few megabytes. Verified: marp
+# renders fine without them.
 find "${D_SHARE}/node_modules" -type d -name prebuilds -prune -exec rm -rf {} + 2>/dev/null || true
 
 # Strip development cruft npm leaves in the tree — linter/editor configs and

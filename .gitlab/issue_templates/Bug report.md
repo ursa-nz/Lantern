@@ -12,7 +12,7 @@ reproduced. Replace the prompts under each heading with your answer.
 
 ### How did you install Lantern?
 
-<!-- Flatpak / Debian or Ubuntu package (.deb) / AppImage / Built from source / Other -->
+<!-- Flatpak / AppImage / Built from source / Other -->
 
 ### Distribution and version
 

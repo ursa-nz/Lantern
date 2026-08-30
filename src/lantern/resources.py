@@ -46,7 +46,7 @@ def install_file_drop(widget, on_files, capture: bool = False) -> Gtk.DropTarget
     files over through the document portal. `text/uri-list` stays as the
     fallback — older portal stacks failed the transfer with "Invalid parent
     directory" for drags from a non-sandboxed source, and unsandboxed builds
-    (deb, AppImage) can read raw paths anyway. The reads are async (and the
+    (the AppImage, a local install) can read raw paths anyway. The reads are async (and the
     stream is spliced async) because a synchronous read would block the main
     loop mid-transfer and deadlock. `capture=True` runs in the capture phase
     so the editor claims image drops before GtkSourceView pastes the path in

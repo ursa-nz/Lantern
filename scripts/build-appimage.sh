@@ -18,6 +18,14 @@ set -euo pipefail
 
 APP_ID="nz.ursa.Lantern"
 APP_NAME="Lantern"
+MARP_VERSION="^4.5.0"
+
+# Where the app lands inside the AppDir. The launcher bakes LAUNCHER_PYTHON and
+# SHAREDIR, which are the paths the app sees once the image is mounted.
+PREFIX="/usr"
+SHAREDIR="${PREFIX}/share/lantern"
+BINDIR="${PREFIX}/bin"
+LAUNCHER_PYTHON="/usr/bin/python3"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 cd "${HERE}"
@@ -63,7 +71,7 @@ if ! have gdk-pixbuf-query-loaders; then
         fi
     done
 fi
-for t in python3 npm gtk-update-icon-cache gdk-pixbuf-query-loaders glib-compile-schemas; do
+for t in python3 node npm gtk-update-icon-cache gdk-pixbuf-query-loaders glib-compile-schemas; do
     have "$t" || err "missing build tool: $t (install the GTK dev/runtime utilities)"
 done
 # The gtk plugin resolves the GTK 4 module dir via `pkg-config gtk4` and aborts
@@ -97,12 +105,85 @@ export PATH="${TOOLS}:${PATH}"   # the gtk plugin is found via PATH by linuxdepl
 
 # ---------- AppDir + staged app ----------
 APPDIR="${HERE}/build/AppDir"
+
+# Install marp-cli into the staged share dir and strip what the image never runs.
+bundle_marp_cli() {
+    local dest="$1"
+    log "Installing @marp-team/marp-cli@${MARP_VERSION} into ${dest}"
+    cat > "${dest}/package.json" <<'JSON'
+{
+  "name": "lantern-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Bundled marp-cli for Lantern."
+}
+JSON
+    ( cd "${dest}" && npm install --silent --no-audit --no-fund --omit=dev \
+        "@marp-team/marp-cli@${MARP_VERSION}" )
+
+    # Drop the multi-arch native prebuilds shipped by the `bare-*` packages (pulled
+    # in transitively by puppeteer's browser-downloader). marp runs on Node, which
+    # uses those packages' pure-JS path and never loads the .bare binaries — they
+    # only load under the unrelated "bare" runtime. Removing them keeps the tree
+    # free of arch-specific objects and trims a few megabytes. Verified: marp
+    # renders fine without them.
+    find "${dest}/node_modules" -type d -name prebuilds -prune -exec rm -rf {} + 2>/dev/null || true
+
+    # Strip development cruft npm leaves in the tree — linter/editor configs and
+    # ignore files that never run. Keeps the bundle smaller and the package clean.
+    find "${dest}/node_modules" -type f \( \
+            -name '.eslintrc' -o -name '.eslintrc.*' -o -name '.npmignore' \
+            -o -name '.editorconfig' -o -name '.gitignore' -o -name '.gitattributes' \
+            -o -name '.travis.yml' -o -name '.npmrc' \) -delete 2>/dev/null || true
+}
+
+# Lay the app out under the AppDir the way the flatpak does — the same launcher,
+# Python package, bundled marp-cli, desktop entry, metainfo, icon, MIME type and
+# fonts.
+stage_app_tree() {
+    local d_share="${APPDIR}${SHAREDIR}"
+    local d_bin="${APPDIR}${BINDIR}"
+    local d_apps="${APPDIR}${PREFIX}/share/applications"
+    local d_meta="${APPDIR}${PREFIX}/share/metainfo"
+    local d_icon="${APPDIR}${PREFIX}/share/icons/hicolor/scalable/apps"
+    local d_mime="${APPDIR}${PREFIX}/share/mime/packages"
+    local d_fonts="${APPDIR}${PREFIX}/share/fonts/IBMPlexMono"
+
+    mkdir -p "${d_share}" "${d_bin}" "${d_apps}" "${d_meta}" "${d_icon}" \
+             "${d_mime}" "${d_fonts}"
+
+    bundle_marp_cli "${d_share}"
+
+    log "Installing Python package to ${d_share}/lantern"
+    cp -r "${HERE}/src/lantern" "${d_share}/lantern"
+    find "${d_share}/lantern" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+
+    log "Installing launcher to ${d_bin}/lantern (python: ${LAUNCHER_PYTHON})"
+    sed -e "s|@PYTHON@|${LAUNCHER_PYTHON}|g" \
+        -e "s|@SHAREDIR@|${SHAREDIR}|g" \
+        "${HERE}/src/lantern.in" > "${d_bin}/lantern"
+    chmod 755 "${d_bin}/lantern"
+
+    log "Installing desktop entry, metainfo, icon, MIME type"
+    sed "s|@BINDIR@|${BINDIR}|g" "${HERE}/data/${APP_ID}.desktop.in" \
+        > "${d_apps}/${APP_ID}.desktop"
+    chmod 644 "${d_apps}/${APP_ID}.desktop"
+    install -m 644 "${HERE}/data/${APP_ID}.metainfo.xml" "${d_meta}/${APP_ID}.metainfo.xml"
+    install -m 644 "${HERE}/data/icons/hicolor/scalable/apps/${APP_ID}.svg" \
+        "${d_icon}/${APP_ID}.svg"
+    # The flatpak installs the MIME file as <app-id>.xml; match that here.
+    install -m 644 "${HERE}/data/${APP_ID}.mime.xml" "${d_mime}/${APP_ID}.xml"
+
+    log "Installing IBM Plex Mono fonts to ${d_fonts}"
+    install -m 644 "${HERE}/data/fonts/IBMPlexMono"/*.ttf "${d_fonts}/"
+    install -m 644 "${HERE}/data/fonts/IBMPlexMono/LICENSE.txt" "${d_fonts}/LICENSE.txt"
+}
+
 rm -rf "${APPDIR}"
 mkdir -p "${APPDIR}/usr"
 
 log "Staging app tree"
-DESTDIR="${APPDIR}" PREFIX="/usr" SHAREDIR="/usr/share/lantern" \
-    PYTHON="/usr/bin/python3" ./scripts/stage-app.sh
+stage_app_tree
 
 # ---------- Bundle the Python interpreter + stdlib + PyGObject ----------
 PYVER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"

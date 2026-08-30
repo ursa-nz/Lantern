@@ -105,7 +105,7 @@ src/lantern/      Python GTK app
 src/lantern.in    Launcher template
 data/             Desktop entry, AppStream metainfo, icon
 flatpak/          flatpak-builder manifest
-scripts/          install-local, build-flatpak, build-appimage, stage-app
+scripts/          install-local, build-flatpak, build-appimage
 ```
 
 ## Status

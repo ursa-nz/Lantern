@@ -5,7 +5,7 @@ set -euo pipefail
 
 APP_ID="nz.ursa.Lantern"
 APP_NAME="Lantern"
-MARP_VERSION="^4.1.0"
+MARP_VERSION="^4.5.0"
 
 PREFIX="${HOME}/.local"
 SHARE="${PREFIX}/share/lantern"          # py package + node_modules live here
@@ -25,9 +25,9 @@ have() { command -v "$1" >/dev/null 2>&1; }
 log "Installing ${APP_NAME} (local, ~/.local)"
 
 # ---------- Dependency checks ----------
-have node     || err "Node.js missing. Install: sudo apt install nodejs npm"
-have npm      || err "npm missing. Install: sudo apt install npm"
-have xdg-open || err "xdg-open missing. Install: sudo apt install xdg-utils"
+have node     || err "Node.js missing. Install it (apt: nodejs npm, dnf: nodejs24 nodejs24-npm)"
+have npm      || err "npm missing. Install it (apt: npm, dnf: nodejs24-npm)"
+have xdg-open || err "xdg-open missing. Install xdg-utils."
 
 # Find a python interpreter that has PyGObject available.
 # The user's shell `python3` may be a venv that shadows the system one without gi.
@@ -38,19 +38,19 @@ for cand in /usr/bin/python3 python3; do
         break
     fi
 done
-[ -n "$PYTHON" ] || err "No python3 with PyGObject. Install: sudo apt install python3-gi"
+[ -n "$PYTHON" ] || err "No python3 with PyGObject. Install it (apt: python3-gi, dnf: python3-gobject)"
 log "Using python: ${PYTHON}"
 
 check_gi() {
-    local mod="$1" ver="$2" pkg="$3"
+    local mod="$1" ver="$2" deb="$3" rpm="$4"
     if ! "$PYTHON" -c "import gi; gi.require_version('${mod}','${ver}'); from gi.repository import ${mod}" 2>/dev/null; then
-        err "Missing ${mod} ${ver}. Install: sudo apt install ${pkg}"
+        err "Missing ${mod} ${ver}. Install it (apt: ${deb}, dnf: ${rpm})"
     fi
 }
-check_gi Gtk       4.0 "gir1.2-gtk-4.0"
-check_gi Adw       1   "gir1.2-adw-1"
-check_gi GtkSource 5   "gir1.2-gtksource-5"
-check_gi WebKit    6.0 "gir1.2-webkit-6.0"
+check_gi Gtk       4.0 "gir1.2-gtk-4.0"       "gtk4"
+check_gi Adw       1   "gir1.2-adw-1"         "libadwaita"
+check_gi GtkSource 5   "gir1.2-gtksource-5"   "gtksourceview5"
+check_gi WebKit    6.0 "gir1.2-webkit-6.0"    "webkitgtk6.0"
 
 # ---------- IBM Plex Mono ----------
 # We ship the four core TTFs (Regular/Italic/Bold/BoldItalic) under

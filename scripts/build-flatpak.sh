@@ -37,8 +37,8 @@ err()  { printf "${c_red}error:${c_reset} %s\n" "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # ---------- Tools ----------
-have flatpak         || err "flatpak missing. Install: sudo apt install flatpak"
-have flatpak-builder || err "flatpak-builder missing. Install: sudo apt install flatpak-builder"
+have flatpak         || err "flatpak missing. Install flatpak."
+have flatpak-builder || err "flatpak-builder missing. Install flatpak-builder."
 
 # ---------- Flathub remote ----------
 # Ensure flathub at USER scope. Every install below is --user, and a --user

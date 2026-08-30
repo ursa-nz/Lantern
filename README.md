@@ -43,16 +43,15 @@ It carries its own GTK, WebKit, Python, Node, marp, and pandoc, so it runs on a 
 
 ## Build it yourself
 
-**Flatpak.** For reproducing what the release ships, or making your own changes.
+**Flatpak.** For reproducing what the release ships, or making your own changes. Needs `flatpak-builder`, which apt and dnf both call by that name.
 
 ```
-sudo apt install flatpak-builder
 ./scripts/build-flatpak.sh
 flatpak install --user build/nz.ursa.Lantern.flatpak
 flatpak run nz.ursa.Lantern
 ```
 
-**AppImage (self-contained).** Bundles the whole GTK/WebKit/Python/Node stack, so it runs anywhere. Build it on the oldest distro you want to support. The releases use Ubuntu 24.04, the first with WebKitGTK 6.0.
+**AppImage (self-contained).** Bundles the whole GTK/WebKit/Python/Node stack, so it runs anywhere. Build it on Debian or Ubuntu, on the oldest release you want to support. The AppImage takes its glibc floor from the build host, and the releases use Ubuntu 24.04, the first with WebKitGTK 6.0. The script also looks for `gdk-pixbuf-query-loaders` under the Debian multiarch library path, which Fedora neither names nor places the same way.
 
 ```
 sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
@@ -65,10 +64,21 @@ sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
 
 **Local install (for hacking on the Python).** PDF and HTML export work. PPTX needs `pandoc` on your PATH.
 
+On Debian or Ubuntu:
+
 ```
 sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
                  gir1.2-gtksource-5 gir1.2-webkit-6.0 \
                  nodejs npm pandoc flatpak xdg-utils
+./scripts/install-local.sh    # ./scripts/uninstall-local.sh to remove
+```
+
+On Fedora:
+
+```
+sudo dnf install python3-gobject gtk4 libadwaita \
+                 gtksourceview5 webkitgtk6.0 \
+                 nodejs24 nodejs24-npm pandoc flatpak xdg-utils
 ./scripts/install-local.sh    # ./scripts/uninstall-local.sh to remove
 ```
 

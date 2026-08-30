@@ -33,12 +33,12 @@ jobs:
             runner: ubuntu-24.04-arm    # GitHub-hosted native ARM (free for public repos)
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node (to fetch marp-cli at build time)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Install the GTK/WebKit stack and packaging tools
         # The gir1.2-* packages pull the matching runtime libs (libgtk-4-1,
@@ -76,7 +76,7 @@ jobs:
           done
 
       - name: Upload as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Lantern-${{ matrix.arch }}.AppImage
           path: build/Lantern-${{ matrix.arch }}.AppImage
@@ -90,13 +90,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Collect both AppImages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
 
       - name: Attach to the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.AppImage
           fail_on_unmatched_files: true

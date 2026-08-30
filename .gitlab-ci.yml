@@ -83,9 +83,9 @@ appimage-build:
     - apt-get update -qq
     - apt-get install -y --no-install-recommends curl ca-certificates >/dev/null
     # The AppImage bundles whatever `node` is on PATH; Ubuntu 24.04 ships 18, so
-    # pull node 22 from NodeSource to match the flatpak's node22 and the other
+    # pull node 24 from NodeSource to match the flatpak's node24 and the other
     # release pipelines.
-    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
+    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash - >/dev/null
     - |
       apt-get install -y --no-install-recommends \
         nodejs \

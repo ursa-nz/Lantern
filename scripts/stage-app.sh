@@ -7,7 +7,7 @@
 #
 # Usage:
 #   DESTDIR=<root> [PREFIX=/usr] [SHAREDIR=<prefix>/share/lantern] \
-#     [PYTHON=/usr/bin/python3] [MARP_VERSION=^4.1.0] scripts/stage-app.sh
+#     [PYTHON=/usr/bin/python3] [MARP_VERSION=^4.5.0] scripts/stage-app.sh
 #
 # Files land under ${DESTDIR}; the launcher bakes the *runtime* ${PYTHON} and
 # ${SHAREDIR} (where the app will live once installed), which need not match
@@ -21,7 +21,7 @@ APP_ID="nz.ursa.Lantern"
 PREFIX="${PREFIX:-/usr}"
 SHAREDIR="${SHAREDIR:-${PREFIX}/share/lantern}"
 PYTHON="${PYTHON:-/usr/bin/python3}"
-MARP_VERSION="${MARP_VERSION:-^4.1.0}"
+MARP_VERSION="${MARP_VERSION:-^4.5.0}"
 
 BINDIR="${PREFIX}/bin"
 

@@ -76,8 +76,8 @@ MANIFEST_ABS="$(pwd)/${MANIFEST}"   # flatpak-builder resolves sources relative 
 rm -rf "${BUILD_DIR}"
 
 # rofiles-fuse needs /dev/fuse, which isn't exposed in many CI containers
-# (even privileged ones). Disable it only when fuse is unavailable so local
-# and GitHub builds keep the read-only build-dir protection.
+# (even privileged ones). Disable it only when fuse is unavailable so a build
+# on a machine that has it keeps the read-only build-dir protection.
 rofiles_args=()
 if [ ! -e /dev/fuse ]; then
     warn "/dev/fuse not available — disabling rofiles-fuse for this build"
